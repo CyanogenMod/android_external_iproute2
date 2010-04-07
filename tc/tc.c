@@ -182,7 +182,11 @@ noexist:
 static void usage(void)
 {
 	fprintf(stderr, "Usage: tc [ OPTIONS ] OBJECT { COMMAND | help }\n"
+#ifdef ANDROID
+			"       tc [-force]\n"
+#else
 			"       tc [-force] -batch filename\n"
+#endif
 	                "where  OBJECT := { qdisc | class | filter | action | monitor }\n"
 	                "       OPTIONS := { -s[tatistics] | -d[etails] | -r[aw] | -p[retty] | -b[atch] [filename] }\n");
 }
@@ -214,6 +218,7 @@ static int do_cmd(int argc, char **argv)
 	return -1;
 }
 
+#ifndef ANDROID
 static int batch(const char *name)
 {
 	char *line = NULL;
@@ -257,13 +262,15 @@ static int batch(const char *name)
 	rtnl_close(&rth);
 	return ret;
 }
-
+#endif
 
 int main(int argc, char **argv)
 {
 	int ret;
+#ifndef ANDROID
 	int do_batching = 0;
 	char *batchfile = NULL;
+#endif
 
 	while (argc > 1) {
 		if (argv[1][0] != '-')
@@ -287,20 +294,23 @@ int main(int argc, char **argv)
 			return 0;
 		} else if (matches(argv[1], "-force") == 0) {
 			++force;
+#ifndef ANDROID
 		} else 	if (matches(argv[1], "-batch") == 0) {
 			do_batching = 1;
 			if (argc > 2)
 				batchfile = argv[2];
 			argc--;	argv++;
+#endif
 		} else {
 			fprintf(stderr, "Option \"%s\" is unknown, try \"tc -help\".\n", argv[1]);
 			return -1;
 		}
 		argc--;	argv++;
 	}
-
+#ifndef ANDROID
 	if (do_batching)
 		return batch(batchfile);
+#endif
 
 	if (argc <= 1) {
 		usage();
