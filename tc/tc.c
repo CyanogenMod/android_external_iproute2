@@ -44,6 +44,11 @@ static void *BODY = NULL;	/* cached handle dlopen(NULL) */
 static struct qdisc_util * qdisc_list;
 static struct filter_util * filter_list;
 
+#ifdef ANDROID
+extern struct qdisc_util cbq_qdisc_util;
+extern struct filter_util u32_filter_util;
+#endif
+
 static int print_noqopt(struct qdisc_util *qu, FILE *f,
 			struct rtattr *opt)
 {
@@ -97,6 +102,14 @@ struct qdisc_util *get_qdisc_kind(const char *str)
 	char buf[256];
 	struct qdisc_util *q;
 
+#ifdef ANDROID
+	if (!strcmp(str, "cbq"))
+		return &cbq_qdisc_util;
+	else {
+		fprintf(stderr, "Android does not support '%s'\n", str);
+		return NULL;
+	}
+#endif
 	for (q = qdisc_list; q; q = q->next)
 		if (strcmp(q->id, str) == 0)
 			return q;
@@ -142,6 +155,14 @@ struct filter_util *get_filter_kind(const char *str)
 	void *dlh;
 	char buf[256];
 	struct filter_util *q;
+#ifdef ANDROID
+	if (!strcmp(str, "u32"))
+		return &u32_filter_util;
+	else {
+		fprintf(stderr, "Android does not support '%s'\n", str);
+		return NULL;
+	}
+#endif
 
 	for (q = filter_list; q; q = q->next)
 		if (strcmp(q->id, str) == 0)
