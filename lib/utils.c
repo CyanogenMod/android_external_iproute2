@@ -297,6 +297,7 @@ int get_addr_1(inet_prefix *addr, const char *name, int family)
 		return 0;
 	}
 
+#ifndef ANDROID
 	if (family == AF_DECnet) {
 		struct dn_naddr dna;
 		addr->family = AF_DECnet;
@@ -307,6 +308,7 @@ int get_addr_1(inet_prefix *addr, const char *name, int family)
 		addr->bitlen = -1;
 		return 0;
 	}
+#endif
 
 	addr->family = AF_INET;
 	if (family != AF_UNSPEC && family != AF_INET)
@@ -519,6 +521,7 @@ const char *rt_addr_n2a(int af, int len, const void *addr, char *buf, int buflen
 	case AF_INET:
 	case AF_INET6:
 		return inet_ntop(af, addr, buf, buflen);
+#ifndef ANDROID
 	case AF_IPX:
 		return ipx_ntop(af, addr, buf, buflen);
 	case AF_DECnet:
@@ -527,6 +530,7 @@ const char *rt_addr_n2a(int af, int len, const void *addr, char *buf, int buflen
 		memcpy(dna.a_addr, addr, 2);
 		return dnet_ntop(af, &dna, buf, buflen);
 	}
+#endif
 	default:
 		return "???";
 	}
@@ -697,6 +701,7 @@ int print_timestamp(FILE *fp)
 
 int cmdlineno;
 
+#ifndef ANDROID
 /* Like glibc getline but handle continuation lines and comments */
 ssize_t getcmdline(char **linep, size_t *lenp, FILE *in)
 {
@@ -741,6 +746,7 @@ ssize_t getcmdline(char **linep, size_t *lenp, FILE *in)
 	}
 	return cc;
 }
+#endif
 
 /* split command line into argument vector */
 int makeargs(char *line, char *argv[], int maxargs)

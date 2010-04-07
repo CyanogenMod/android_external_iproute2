@@ -7,6 +7,10 @@
 #include <linux/gen_stats.h>
 #include "tc_core.h"
 
+#ifndef MIN
+#define MIN(x,y)        ((x)<(y)?(x):(y))
+#endif
+
 /* This is the deprecated multiqueue interface */
 #ifndef TCA_PRIO_MAX
 enum
