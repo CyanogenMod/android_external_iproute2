@@ -8,7 +8,7 @@ LOCAL_SRC_FILES :=  tc.c tc_qdisc.c q_cbq.c tc_util.c tc_class.c tc_core.c m_act
 LOCAL_MODULE := tc
 
 LOCAL_SYSTEM_SHARED_LIBRARIES := \
-	libc libm
+	libc libm libdl
 
 LOCAL_SHARED_LIBRARIES += libiprouteutil libnetlink
 
