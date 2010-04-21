@@ -46,6 +46,7 @@ static struct filter_util * filter_list;
 
 #ifdef ANDROID
 extern struct qdisc_util cbq_qdisc_util;
+extern struct qdisc_util ingress_qdisc_util;
 extern struct filter_util u32_filter_util;
 #endif
 
@@ -105,6 +106,8 @@ struct qdisc_util *get_qdisc_kind(const char *str)
 #ifdef ANDROID
 	if (!strcmp(str, "cbq"))
 		return &cbq_qdisc_util;
+	else if (!strcmp(str, "ingress"))
+		return &ingress_qdisc_util;
 	else {
 		fprintf(stderr, "Android does not support '%s'\n", str);
 		return NULL;
