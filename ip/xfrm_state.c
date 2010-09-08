@@ -29,7 +29,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <netdb.h>
+#include <endian.h>
 #include <linux/xfrm.h>
+#include <linux/in.h>
+#include <linux/in6.h>
+
 #include "utils.h"
 #include "xfrm.h"
 #include "ip_common.h"

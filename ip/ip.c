@@ -84,7 +84,7 @@ static const struct cmd {
 	{ "mrule",	do_multirule },
 	{ "netns",	do_netns },
 	{ "help",	do_help },
-	{ 0 }
+	{ 0,		0 }
 };
 
 static int do_cmd(const char *argv0, int argc, char **argv)
@@ -101,6 +101,7 @@ static int do_cmd(const char *argv0, int argc, char **argv)
 	return EXIT_FAILURE;
 }
 
+#ifndef ANDROID
 static int batch(const char *name)
 {
 	char *line = NULL;
@@ -142,7 +143,7 @@ static int batch(const char *name)
 	rtnl_close(&rth);
 	return ret;
 }
-
+#endif
 
 int main(int argc, char **argv)
 {
@@ -219,12 +220,14 @@ int main(int argc, char **argv)
 			exit(0);
 		} else if (matches(opt, "-force") == 0) {
 			++force;
+#ifndef ANDROID
 		} else if (matches(opt, "-batch") == 0) {
 			argc--;
 			argv++;
 			if (argc <= 1)
 				usage();
 			batch_file = argv[1];
+#endif
 		} else if (matches(opt, "-rcvbuf") == 0) {
 			unsigned int size;
 
@@ -249,8 +252,10 @@ int main(int argc, char **argv)
 
 	_SL_ = oneline ? "\\" : "\n" ;
 
+#ifndef ANDROID
 	if (batch_file)
 		return batch(batch_file);
+#endif
 
 	if (rtnl_open(&rth, 0) < 0)
 		exit(1);

@@ -31,6 +31,9 @@
 #include <netdb.h>
 #include <linux/netlink.h>
 #include <linux/xfrm.h>
+#include <linux/in.h>
+#include <linux/in6.h>
+
 #include "utils.h"
 #include "xfrm.h"
 #include "ip_common.h"
