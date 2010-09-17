@@ -9,6 +9,8 @@ LOCAL_SRC_FILES := ip.c ipaddress.c ipaddrlabel.c iproute.c iprule.c   \
 
 LOCAL_MODULE := ip
 
+LOCAL_MODULE_TAGS := optional
+
 LOCAL_SHARED_LIBRARIES := libc libm libdl
 
 LOCAL_SHARED_LIBRARIES += libiprouteutil libnetlink
