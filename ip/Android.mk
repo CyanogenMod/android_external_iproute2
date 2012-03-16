@@ -19,5 +19,7 @@ LOCAL_C_INCLUDES := $(KERNEL_HEADERS) external/iproute2/include
 
 LOCAL_CFLAGS := -O2 -g -W -Wall 
 
+LOCAL_LDFLAGS := -Wl,-export-dynamic -Wl,--no-gc-sections
+
 include $(BUILD_EXECUTABLE)
 
