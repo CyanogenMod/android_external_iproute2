@@ -45,10 +45,32 @@ static struct qdisc_util * qdisc_list;
 static struct filter_util * filter_list;
 
 #ifdef ANDROID
-extern struct qdisc_util cbq_qdisc_util;
-extern struct qdisc_util htb_qdisc_util;
+extern struct qdisc_util cbq_qdisc_util;    /* all these are here because they decided*/
+extern struct qdisc_util htb_qdisc_util;    /* somewhere along the way that qdisc selection*/
+extern struct qdisc_util sfq_qdisc_util;    /* should be hard-wired in*/
+extern struct qdisc_util sfb_qdisc_util;
 extern struct qdisc_util ingress_qdisc_util;
+extern struct qdisc_util bfifo_qdisc_util;
+extern struct qdisc_util pfifo_qdisc_util;
+extern struct qdisc_util pfifo_head_drop_qdisc_util;
+extern struct qdisc_util pfifo_fast_qdisc_util;
+extern struct qdisc_util drr_qdisc_util;
+extern struct qdisc_util dsmark_qdisc_util;
+extern struct qdisc_util gred_qdisc_util;
+extern struct qdisc_util hfsc_qdisc_util;
+extern struct qdisc_util multiq_qdisc_util;
+extern struct qdisc_util prio_qdisc_util;
+extern struct qdisc_util red_qdisc_util;
+extern struct qdisc_util rr_qdisc_util;
+extern struct qdisc_util tbf_qdisc_util;
 extern struct filter_util u32_filter_util;
+extern struct filter_util cgroup_filter_util;
+extern struct filter_util basic_filter_util;
+extern struct filter_util flow_filter_util;
+extern struct filter_util route_filter_util;
+extern struct filter_util rsvp_filter_util;
+extern struct filter_util rsvp6_filter_util;
+extern struct filter_util tcindex_filter_util;
 #endif
 
 static int print_noqopt(struct qdisc_util *qu, FILE *f,
@@ -103,7 +125,6 @@ struct qdisc_util *get_qdisc_kind(const char *str)
 	void *dlh;
 	char buf[256];
 	struct qdisc_util *q;
-
 #ifdef ANDROID
 	if (!strcmp(str, "cbq"))
 		return &cbq_qdisc_util;
@@ -111,6 +132,36 @@ struct qdisc_util *get_qdisc_kind(const char *str)
 		return &htb_qdisc_util;
 	else if (!strcmp(str, "ingress"))
 		return &ingress_qdisc_util;
+	else if (!strcmp(str, "sfq"))
+		return &sfq_qdisc_util;
+	else if (!strcmp(str, "sfb"))      /* updating the hard-wiring*/
+		return &sfb_qdisc_util;
+	else if (!strcmp(str, "bfifo"))
+		return &bfifo_qdisc_util;
+	else if (!strcmp(str, "pfifo"))
+		return &pfifo_qdisc_util;
+	else if (!strcmp(str, "pfifo_head_drop"))
+		return &pfifo_head_drop_qdisc_util;
+	else if (!strcmp(str, "pfifo_fast"))
+		return &pfifo_fast_qdisc_util;
+	else if (!strcmp(str, "drr"))
+		return &drr_qdisc_util;
+	else if (!strcmp(str, "dsmark"))
+		return &dsmark_qdisc_util;
+	else if (!strcmp(str, "gred"))
+		return &gred_qdisc_util;
+	else if (!strcmp(str, "hfsc"))
+		return &hfsc_qdisc_util;
+	else if (!strcmp(str, "multiq"))
+		return &multiq_qdisc_util;
+	else if (!strcmp(str, "prio"))
+		return &prio_qdisc_util;
+	else if (!strcmp(str, "red"))
+		return &red_qdisc_util;
+	else if (!strcmp(str, "rr"))
+		return &rr_qdisc_util;
+	else if (!strcmp(str, "tbf"))
+		return &tbf_qdisc_util;
 	else {
 		fprintf(stderr, "Android does not support qdisc '%s'\n", str);
 		return NULL;
@@ -164,6 +215,20 @@ struct filter_util *get_filter_kind(const char *str)
 #ifdef ANDROID
 	if (!strcmp(str, "u32"))
 		return &u32_filter_util;
+	else if (!strcmp(str, "cgroup"))   /* more hard-wiring */
+		return &cgroup_filter_util;
+	else if (!strcmp(str, "basic"))
+		return &basic_filter_util;
+	else if (!strcmp(str, "flow"))
+		return &flow_filter_util;
+	else if (!strcmp(str, "route"))
+		return &route_filter_util;
+	else if (!strcmp(str, "rsvp"))
+		return &rsvp_filter_util;
+	else if (!strcmp(str, "rsvp6"))
+		return &rsvp6_filter_util;
+	else if (!strcmp(str, "tcindex"))
+		return &tcindex_filter_util;
 	else {
 		fprintf(stderr, "Android does not support filter '%s'\n", str);
 		return NULL;
@@ -206,6 +271,7 @@ noexist:
 	return q;
 }
 
+/* as useful as batching would be, it's not supported in android becuz of the sandbox design */
 static void usage(void)
 {
 	fprintf(stderr, "Usage: tc [ OPTIONS ] OBJECT { COMMAND | help }\n"

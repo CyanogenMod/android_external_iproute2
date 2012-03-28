@@ -31,7 +31,13 @@
 static struct action_util * action_list;
 
 #ifdef ANDROID
-extern struct action_util mirred_action_util;
+extern struct action_util mirred_action_util;  /* android hard-wiring again*/
+extern struct action_util gact_action_util;
+extern struct action_util ipt_action_util;
+extern struct action_util nat_action_util;
+extern struct action_util pedit_action_util;
+extern struct action_util police_action_util;
+extern struct action_util skbedit_action_util;
 #endif
 
 #ifdef CONFIG_GACT

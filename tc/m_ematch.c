@@ -315,19 +315,20 @@ static inline void free_ematch_err(void)
 	}
 }
 
-extern int ematch_parse(void);
+/* extern int ematch_parse(void);  Where is this function supposed to be at? I couldn't find it anywhere*/
 
 int parse_ematch(int *argc_p, char ***argv_p, int tca_id, struct nlmsghdr *n)
 {
 	begin_argc = ematch_argc = *argc_p;
 	begin_argv = ematch_argv = *argv_p;
 
-	if (ematch_parse()) {
+/*  BAD HACK but we aren't even using this filter, just need this so it can compile */
+/*	if (ematch_parse()) { 
 		int err = em_parse_error(EINVAL, NULL, NULL, NULL,
 		    "Parse error");
 		free_ematch_err();
 		return err;
-	}
+	} */
 
 	free_ematch_err();
 
