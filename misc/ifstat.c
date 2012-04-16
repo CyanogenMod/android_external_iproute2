@@ -29,7 +29,8 @@
 #include <getopt.h>
 
 #include <libnetlink.h>
-#include <linux/netdevice.h>
+#include <linux/if.h>
+#include <linux/if_link.h>
 
 #include <SNAPSHOT.h>
 
@@ -48,7 +49,7 @@ int npatterns;
 char info_source[128];
 int source_mismatch;
 
-#define MAXS (sizeof(struct net_device_stats)/sizeof(unsigned long))
+#define MAXS (sizeof(struct rtnl_link_stats)/sizeof(__u32))
 
 struct ifstat_ent
 {
@@ -57,7 +58,7 @@ struct ifstat_ent
 	int			ifindex;
 	unsigned long long	val[MAXS];
 	double			rate[MAXS];
-	unsigned long		ival[MAXS];
+	__u32			ival[MAXS];
 };
 
 struct ifstat_ent *kern_db;
@@ -127,7 +128,7 @@ void load_info(void)
 		exit(1);
 	}
 
-	if (rtnl_dump_filter(&rth, get_nlmsg, NULL, NULL, NULL) < 0) {
+	if (rtnl_dump_filter(&rth, get_nlmsg, NULL) < 0) {
 		fprintf(stderr, "Dump terminated\n");
 		exit(1);
 	}
@@ -186,7 +187,7 @@ void load_raw_table(FILE *fp)
 			*next++ = 0;
 			if (sscanf(p, "%llu", n->val+i) != 1)
 				abort();
-			n->ival[i] = (unsigned long)n->val[i];
+			n->ival[i] = (__u32)n->val[i];
 			p = next;
 			if (!(next = strchr(p, ' ')))
 				abort();
@@ -375,8 +376,7 @@ void print_one_if(FILE *fp, struct ifstat_ent *n, unsigned long long *vals)
 
 void dump_kern_db(FILE *fp)
 {
-	struct ifstat_ent *n, *h;
-	h = hist_db;
+	struct ifstat_ent *n;
 
 	print_head(fp);
 
@@ -562,8 +562,6 @@ static void usage(void)
 "   -s, --noupdate	don;t update history\n"
 "   -t, --interval=SECS	report average over the last SECS\n"
 "   -V, --version	output version information\n"
-"   -z, --zeros		show entries with zero activity\n"
-"   -e, --errors	show errors\n"
 "   -z, --zeros		show entries with zero activity\n");
 
 	exit(-1);
@@ -579,8 +577,6 @@ static const struct option longopts[] = {
 	{ "noupdate", 0, 0, 's' },
 	{ "interval", 1, 0, 't' },
 	{ "version", 0, 0, 'V' },
-	{ "zeros", 0, 0, 'z' },
-	{ "errors", 0, 0, 'e' },
 	{ "zeros", 0, 0, 'z' },
 	{ 0 }
 };
@@ -677,9 +673,11 @@ int main(int argc, char *argv[])
 	npatterns = argc;
 
 	if (getenv("IFSTAT_HISTORY"))
-		snprintf(hist_name, sizeof(hist_name), getenv("IFSTAT_HISTORY"));
+		snprintf(hist_name, sizeof(hist_name),
+			 "%s", getenv("IFSTAT_HISTORY"));
 	else
-		sprintf(hist_name, "%s/.ifstat.u%d", P_tmpdir, getuid());
+		snprintf(hist_name, sizeof(hist_name),
+			 "%s/.ifstat.u%d", P_tmpdir, getuid());
 
 	if (reset_history)
 		unlink(hist_name);
@@ -710,7 +708,7 @@ int main(int argc, char *argv[])
 		}
 		if (!ignore_history) {
 			FILE *tfp;
-			long uptime;
+			long uptime = -1;
 			if ((tfp = fopen("/proc/uptime", "r")) != NULL) {
 				if (fscanf(tfp, "%ld", &uptime) != 1)
 					uptime = -1;

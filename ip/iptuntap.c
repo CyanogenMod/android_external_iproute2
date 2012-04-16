@@ -47,7 +47,7 @@ static void usage(void)
 
 static int tap_add_ioctl(struct ifreq *ifr, uid_t uid, gid_t gid)
 {
-	int fd = open(TUNDEV, O_RDWR);
+	int fd;
 	int ret = -1;
 
 #ifdef IFF_TUN_EXCL
@@ -298,6 +298,7 @@ static int do_show(int argc, char **argv)
 			printf(" group %ld", group);
 		printf("\n");
 	}
+	closedir(dir);
 	return 0;
 }
 

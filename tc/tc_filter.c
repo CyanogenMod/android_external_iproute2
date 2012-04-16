@@ -73,7 +73,7 @@ int tc_filter_modify(int cmd, unsigned flags, int argc, char **argv)
 	req.t.tcm_family = AF_UNSPEC;
 
 	if (cmd == RTM_NEWTFILTER && flags & NLM_F_CREATE)
-		protocol = ETH_P_ALL;
+		protocol = htons(ETH_P_ALL);
 
 	while (argc > 0) {
 		if (strcmp(*argv, "dev") == 0) {
@@ -167,7 +167,7 @@ int tc_filter_modify(int cmd, unsigned flags, int argc, char **argv)
 		}
 	}
 
- 	if (rtnl_talk(&rth, &req.n, 0, 0, NULL, NULL, NULL) < 0) {
+	if (rtnl_talk(&rth, &req.n, 0, 0, NULL) < 0) {
 		fprintf(stderr, "We have an error talking to the kernel\n");
 		return 2;
 	}
@@ -341,7 +341,7 @@ int tc_filter_list(int argc, char **argv)
 		return 1;
 	}
 
- 	if (rtnl_dump_filter(&rth, print_filter, stdout, NULL, NULL) < 0) {
+ 	if (rtnl_dump_filter(&rth, print_filter, stdout) < 0) {
 		fprintf(stderr, "Dump terminated\n");
 		return 1;
 	}

@@ -275,9 +275,7 @@ noexist:
 static void usage(void)
 {
 	fprintf(stderr, "Usage: tc [ OPTIONS ] OBJECT { COMMAND | help }\n"
-#ifdef ANDROID
-			"       tc [-force]\n"
-#else
+#ifndef ANDROID
 			"       tc [-force] -batch filename\n"
 #endif
 	                "where  OBJECT := { qdisc | class | filter | action | monitor }\n"

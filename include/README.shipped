@@ -1,0 +1,4 @@
+The symlink shipped to . is there so we can explicitly reference the headers
+shipped with iproute2 rather than using the system headers which may be
+incomplete. (Putting our include/ in front of bionic's kernel/common/ causes
+other errors. This is a whole mess.)

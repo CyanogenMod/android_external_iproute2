@@ -72,7 +72,7 @@ static int gre_parse_opt(struct link_util *lu, int argc, char **argv,
 		req.i.ifi_family = preferred_family;
 		req.i.ifi_index = ifi->ifi_index;
 
-		if (rtnl_talk(&rth, &req.n, 0, 0, &req.n, NULL, NULL) < 0) {
+		if (rtnl_talk(&rth, &req.n, 0, 0, &req.n) < 0) {
 get_failed:
 			fprintf(stderr,
 				"Failed to get existing tunnel info.\n");
@@ -206,7 +206,7 @@ get_failed:
 				saddr = get_addr32(*argv);
 		} else if (!matches(*argv, "dev")) {
 			NEXT_ARG();
-			link = tnl_ioctl_get_ifindex(*argv);
+			link = if_nametoindex(*argv);
 			if (link == 0)
 				exit(-1);
 		} else if (!matches(*argv, "ttl") ||
@@ -298,7 +298,7 @@ static void gre_print_opt(struct link_util *lu, FILE *f, struct rtattr *tb[])
 
 	if (tb[IFLA_GRE_LINK] && *(__u32 *)RTA_DATA(tb[IFLA_GRE_LINK])) {
 		unsigned link = *(__u32 *)RTA_DATA(tb[IFLA_GRE_LINK]);
-		char *n = tnl_ioctl_get_ifname(link);
+		const char *n = if_indextoname(link, s2);
 
 		if (n)
 			fprintf(f, "dev %s ", n);
@@ -331,16 +331,14 @@ static void gre_print_opt(struct link_util *lu, FILE *f, struct rtattr *tb[])
 	if (tb[IFLA_GRE_OFLAGS])
 		oflags = *(__u16 *)RTA_DATA(tb[IFLA_GRE_OFLAGS]);
 
-	if (iflags & GRE_KEY && tb[IFLA_GRE_IKEY] &&
-	    *(__u32 *)RTA_DATA(tb[IFLA_GRE_IKEY])) {
+	if ((iflags & GRE_KEY) && tb[IFLA_GRE_IKEY]) {
 		inet_ntop(AF_INET, RTA_DATA(tb[IFLA_GRE_IKEY]), s2, sizeof(s2));
 		fprintf(f, "ikey %s ", s2);
 	}
 
-	if (oflags & GRE_KEY && tb[IFLA_GRE_OKEY] &&
-	    *(__u32 *)RTA_DATA(tb[IFLA_GRE_OKEY])) {
+	if ((oflags & GRE_KEY) && tb[IFLA_GRE_OKEY]) {
 		inet_ntop(AF_INET, RTA_DATA(tb[IFLA_GRE_OKEY]), s2, sizeof(s2));
-		fprintf(f, "ikey %s ", s2);
+		fprintf(f, "okey %s ", s2);
 	}
 
 	if (iflags & GRE_SEQ)
