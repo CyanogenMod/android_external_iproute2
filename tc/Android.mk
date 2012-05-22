@@ -18,7 +18,7 @@ LOCAL_SHARED_LIBRARIES += libiprouteutil libnetlink
 
 LOCAL_C_INCLUDES := $(KERNEL_HEADERS) external/iproute2/include
 
-LOCAL_CFLAGS := -O2 -g -W -Wall 
+LOCAL_CFLAGS := -O2 -g -Wall -Wstrict-prototypes
 
 include $(BUILD_EXECUTABLE)
 

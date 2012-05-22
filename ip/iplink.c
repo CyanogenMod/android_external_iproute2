@@ -38,7 +38,7 @@
 
 #define IPLINK_IOCTL_COMPAT	1
 #ifndef LIBDIR
-#define LIBDIR "/usr/lib/"
+#define LIBDIR "/usr/lib"
 #endif
 
 static void usage(void) __attribute__((noreturn));
@@ -138,9 +138,9 @@ struct link_util *get_link_kind(const char *id)
 
 int get_link_mode(const char *mode)
 {
-	if (strcmp(mode, "default") == 0)
+	if (strcasecmp(mode, "default") == 0)
 		return IF_LINK_MODE_DEFAULT;
-	if (strcmp(mode, "dormant") == 0)
+	if (strcasecmp(mode, "dormant") == 0)
 		return IF_LINK_MODE_DORMANT;
 	return -1;
 }
@@ -437,10 +437,18 @@ int iplink_parse(int argc, char **argv, struct iplink_req *req,
 		} else if (strcmp(*argv, "mode") == 0) {
 			int mode;
 			NEXT_ARG();
-			mode  = get_link_mode(*argv);
+			mode = get_link_mode(*argv);
 			if (mode < 0)
 				invarg("Invalid link mode\n", *argv);
 			addattr8(&req->n, sizeof(*req), IFLA_LINKMODE, mode);
+		} else if (strcmp(*argv, "state") == 0) {
+			int state;
+			NEXT_ARG();
+			state = get_operstate(*argv);
+			if (state < 0)
+				invarg("Invalid operstate\n", *argv);
+
+			addattr8(&req->n, sizeof(*req), IFLA_OPERSTATE, state);
 		} else {
 			if (strcmp(*argv, "dev") == 0) {
 				NEXT_ARG();

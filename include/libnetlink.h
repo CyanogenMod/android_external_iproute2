@@ -8,6 +8,12 @@
 #include <linux/if_link.h>
 #include <linux/if_addr.h>
 #include <linux/neighbour.h>
+#include <linux/version.h>
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,4,0)
+#define IFLA_EXT_MASK IFLA_NET_NS_FD+1
+#define RTEXT_FILTER_VF (1 << 0)
+#endif
 
 struct rtnl_handle
 {

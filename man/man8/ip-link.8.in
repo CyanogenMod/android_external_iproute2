@@ -29,7 +29,7 @@ ip-link \- network device configuration
 .RB "[ " name " ]"
 .I NAME
 .br
-.RB "[ " txqueuelen 
+.RB "[ " txqueuelen
 .IR PACKETS " ]"
 .br
 .RB "[ " address
@@ -101,12 +101,6 @@ ip-link \- network device configuration
 .IR TXRATE " ] ["
 .B spoofchk { on | off }
 ] |
-.br
-.B mode
-.IR LINKMODE " |"
-.br
-.B state
-.IR LINKSTATE " |"
 .br
 .B master
 .IR DEVICE
@@ -257,18 +251,6 @@ move the device to the network namespace associated with name
 .IR "NETNSNAME".
 
 .TP
-.BI mode " LINKMODE"
-allows setting link mode which determines which RFC2863 operational state
-the device will transistion to when it is brought up. Setting
-.I dormant
-mode changes the behaviour so that device goes into DORMANT state instead
-of UP when driver is ready.
-
-.TP
-.BI state " LINKSTATE"
-allows setting the operational link state. The values (defined in RFC2863)
-are: UP, DOWN, TESTING, UNKNOWN, DORMANT, NOTPRESENT, LOWERLAYERDOWN.
-.TP
 .BI alias " NAME"
 give the device a symbolic name for easy reference.
 
@@ -276,7 +258,7 @@ give the device a symbolic name for easy reference.
 .BI group " GROUP"
 specify the group the device belongs to.
 The available groups are listed in file
-.BR "/etc/iproute2/group" .
+.BR "@SYSCONFDIR@/group" .
 
 .TP
 .BI vf " NUM"
