@@ -136,6 +136,16 @@ static void print_operstate(FILE *f, __u8 state)
 		fprintf(f, "state %s ", oper_states[state]);
 }
 
+int get_operstate(const char *name)
+{
+	int i;
+
+	for (i = 0; i < sizeof(oper_states)/sizeof(oper_states[0]); i++)
+		if (strcasecmp(name, oper_states[i]) == 0)
+			return i;
+	return -1;
+}
+
 static void print_queuelen(FILE *f, struct rtattr *tb[IFLA_MAX + 1])
 {
 	int qlen;
@@ -150,7 +160,7 @@ static void print_queuelen(FILE *f, struct rtattr *tb[IFLA_MAX + 1])
 			return;
 
 		memset(&ifr, 0, sizeof(ifr));
-		strcpy(ifr.ifr_name, (char *)RTA_DATA(tb[IFLA_IFNAME]));
+		strcpy(ifr.ifr_name, rta_getattr_str(tb[IFLA_IFNAME]));
 		if (ioctl(s, SIOCGIFTXQLEN, &ifr) < 0) {
 			fprintf(f, "ioctl(SIOCGIFXQLEN) failed: %s\n", strerror(errno));
 			close(s);
@@ -392,7 +402,7 @@ int print_linkinfo(const struct sockaddr_nl *who,
 		fprintf(fp, "Deleted ");
 
 	fprintf(fp, "%d: %s", ifi->ifi_index,
-		tb[IFLA_IFNAME] ? (char*)RTA_DATA(tb[IFLA_IFNAME]) : "<nil>");
+		tb[IFLA_IFNAME] ? rta_getattr_str(tb[IFLA_IFNAME]) : "<nil>");
 
 	if (tb[IFLA_LINK]) {
 		SPRINT_BUF(b1);
@@ -412,14 +422,14 @@ int print_linkinfo(const struct sockaddr_nl *who,
 	if (tb[IFLA_MTU])
 		fprintf(fp, "mtu %u ", *(int*)RTA_DATA(tb[IFLA_MTU]));
 	if (tb[IFLA_QDISC])
-		fprintf(fp, "qdisc %s ", (char*)RTA_DATA(tb[IFLA_QDISC]));
+		fprintf(fp, "qdisc %s ", rta_getattr_str(tb[IFLA_QDISC]));
 	if (tb[IFLA_MASTER]) {
 		SPRINT_BUF(b1);
 		fprintf(fp, "master %s ", ll_idx_n2a(*(int*)RTA_DATA(tb[IFLA_MASTER]), b1));
 	}
 
 	if (tb[IFLA_OPERSTATE])
-		print_operstate(fp, *(__u8 *)RTA_DATA(tb[IFLA_OPERSTATE]));
+		print_operstate(fp, rta_getattr_u8(tb[IFLA_OPERSTATE]));
 
 	if (do_link && tb[IFLA_LINKMODE])
 		print_linkmode(fp, tb[IFLA_LINKMODE]);
@@ -455,7 +465,7 @@ int print_linkinfo(const struct sockaddr_nl *who,
 
 	if (do_link && tb[IFLA_IFALIAS])
 		fprintf(fp,"\n    alias %s", 
-			(const char *) RTA_DATA(tb[IFLA_IFALIAS]));
+			rta_getattr_str(tb[IFLA_IFALIAS]));
 
 	if (do_link && show_stats) {
 		if (tb[IFLA_STATS64])
@@ -660,7 +670,7 @@ int print_addrinfo(const struct sockaddr_nl *who, struct nlmsghdr *n,
 	if (ifa_flags)
 		fprintf(fp, "flags %02x ", ifa_flags);
 	if (rta_tb[IFA_LABEL])
-		fprintf(fp, "%s", (char*)RTA_DATA(rta_tb[IFA_LABEL]));
+		fprintf(fp, "%s", rta_getattr_str(rta_tb[IFA_LABEL]));
 	if (rta_tb[IFA_CACHEINFO]) {
 		struct ifa_cacheinfo *ci = RTA_DATA(rta_tb[IFA_CACHEINFO]);
 		fprintf(fp, "%s", _SL_);

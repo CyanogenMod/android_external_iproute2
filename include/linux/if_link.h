@@ -148,6 +148,9 @@ enum {
 #define IFLA_RTA(r)  ((struct rtattr*)(((char*)(r)) + NLMSG_ALIGN(sizeof(struct ifinfomsg))))
 #define IFLA_PAYLOAD(n) NLMSG_PAYLOAD(n,sizeof(struct ifinfomsg))
 
+/* New extended info filters for IFLA_EXT_MASK */
+#define RTEXT_FILTER_VF (1 << 0)
+
 enum {
 	IFLA_INET_UNSPEC,
 	IFLA_INET_CONF,
