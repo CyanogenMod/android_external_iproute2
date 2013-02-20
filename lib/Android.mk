@@ -4,7 +4,7 @@ include $(CLEAR_VARS)
 LOCAL_SRC_FILES := utils.c rt_names.c ll_types.c ll_proto.c ll_addr.c inet_proto.c
 LOCAL_MODULE := libiprouteutil
 LOCAL_SYSTEM_SHARED_LIBRARIES := libc
-LOCAL_C_INCLUDES := $(KERNEL_HEADERS) external/iproute2/include
+LOCAL_C_INCLUDES := $(LOCAL_PATH)/../include
 LOCAL_CFLAGS := -O2 -g -W -Wall \
 	-DHAVE_UNISTD_H \
 	-DHAVE_ERRNO_H \
@@ -33,7 +33,7 @@ include $(CLEAR_VARS)
 LOCAL_SRC_FILES := ll_map.c libnetlink.c
 LOCAL_MODULE := libnetlink
 LOCAL_SYSTEM_SHARED_LIBRARIES := libc
-LOCAL_C_INCLUDES := $(KERNEL_HEADERS) external/iproute2/include
+LOCAL_C_INCLUDES := $(LOCAL_PATH)/../include
 LOCAL_CFLAGS := -O2 -g -W -Wall \
 	-DHAVE_UNISTD_H \
 	-DHAVE_ERRNO_H \
