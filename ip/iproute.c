@@ -62,7 +62,7 @@ static void usage(void)
 	fprintf(stderr, "       ip route restore\n");
 	fprintf(stderr, "       ip route get ADDRESS [ from ADDRESS iif STRING ]\n");
 	fprintf(stderr, "                            [ oif STRING ]  [ tos TOS ]\n");
-	fprintf(stderr, "                            [ mark NUMBER ]\n");
+	fprintf(stderr, "                            [ mark NUMBER ] [ uid NUMBER ]\n");
 	fprintf(stderr, "       ip route { add | del | change | append | replace } ROUTE\n");
 	fprintf(stderr, "SELECTOR := [ root PREFIX ] [ match PREFIX ] [ exact PREFIX ]\n");
 	fprintf(stderr, "            [ table TABLE_ID ] [ proto RTPROTO ]\n");
@@ -422,6 +422,9 @@ int print_route(const struct sockaddr_nl *who, struct nlmsghdr *n, void *arg)
 				fprintf(fp, " mark %u", mark);
 		}
 	}
+
+	if (tb[RTA_UID])
+		fprintf(fp, " uid %u ", rta_getattr_u32(tb[RTA_UID]));
 
 	if (tb[RTA_FLOW] && filter.realmmask != ~0U) {
 		__u32 to = rta_getattr_u32(tb[RTA_FLOW]);
@@ -1401,6 +1404,11 @@ int iproute_get(int argc, char **argv)
 			   strcmp(*argv, "dev") == 0) {
 			NEXT_ARG();
 			odev = *argv;
+		} else if (matches(*argv, "uid") == 0) {
+		        uid_t uid;
+			NEXT_ARG();
+			get_unsigned(&uid, *argv, 0);
+			addattr32(&req.n, sizeof(req), RTA_UID, uid);
 		} else if (matches(*argv, "notify") == 0) {
 			req.r.rtm_flags |= RTM_F_NOTIFY;
 		} else if (matches(*argv, "connected") == 0) {

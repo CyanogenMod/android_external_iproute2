@@ -34,7 +34,7 @@ static void usage(void)
 {
 	fprintf(stderr, "Usage: ip rule [ list | add | del | flush ] SELECTOR ACTION\n");
 	fprintf(stderr, "SELECTOR := [ not ] [ from PREFIX ] [ to PREFIX ] [ tos TOS ] [ fwmark FWMARK[/MASK] ]\n");
-	fprintf(stderr, "            [ iif STRING ] [ oif STRING ] [ pref NUMBER ]\n");
+	fprintf(stderr, "            [ iif STRING ] [ oif STRING ] [ pref NUMBER ] [ uidrange UID1-UID2 ]\n");
 	fprintf(stderr, "ACTION := [ table TABLE_ID ]\n");
 	fprintf(stderr, "          [ prohibit | reject | unreachable ]\n");
 	fprintf(stderr, "          [ realms [SRCREALM/]DSTREALM ]\n");
@@ -49,7 +49,7 @@ int print_rule(const struct sockaddr_nl *who, struct nlmsghdr *n, void *arg)
 	struct rtmsg *r = NLMSG_DATA(n);
 	int len = n->nlmsg_len;
 	int host_len = -1;
-	__u32 table;
+	__u32 table, uid_start, uid_end;
 	struct rtattr * tb[FRA_MAX+1];
 	char abuf[256];
 	SPRINT_BUF(b1);
@@ -150,6 +150,19 @@ int print_rule(const struct sockaddr_nl *who, struct nlmsghdr *n, void *arg)
 		fprintf(fp, "oif %s ", rta_getattr_str(tb[FRA_OIFNAME]));
 		if (r->rtm_flags & FIB_RULE_OIF_DETACHED)
 			fprintf(fp, "[detached] ");
+	}
+
+	if (tb[FRA_UID_START] || tb[FRA_UID_END]) {
+		fprintf(fp, "uidrange ");
+		if (tb[FRA_UID_START])
+			fprintf(fp, "%u", rta_getattr_u32(tb[FRA_UID_START]));
+		else
+			fprintf(fp, "???");
+
+		if (tb[FRA_UID_END])
+			fprintf(fp, "-%u ", rta_getattr_u32(tb[FRA_UID_END]));
+		else
+			fprintf(fp, "-??? ");
 	}
 
 	table = rtm_get_table(r, tb);
@@ -323,6 +336,13 @@ static int iprule_modify(int cmd, int argc, char **argv)
 			fprintf(stderr, "Warning: route NAT is deprecated\n");
 			addattr32(&req.n, sizeof(req), RTA_GATEWAY, get_addr32(*argv));
 			req.r.rtm_type = RTN_NAT;
+		} else if (strcmp(*argv, "uidrange") == 0) {
+			__u32 uid_start, uid_end;
+			NEXT_ARG();
+			if (sscanf(*argv, "%u-%u", &uid_start, &uid_end) != 2)
+				invarg("UID range is invalid\n", *argv);
+			addattr32(&req.n, sizeof(req), FRA_UID_START, uid_start);
+			addattr32(&req.n, sizeof(req), FRA_UID_END, uid_end);
 		} else {
 			int type;
 
