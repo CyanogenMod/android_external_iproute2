@@ -12,9 +12,9 @@ LOCAL_SYSTEM_SHARED_LIBRARIES := \
 
 LOCAL_SHARED_LIBRARIES += libiprouteutil libnetlink
 
-LOCAL_C_INCLUDES := $(KERNEL_HEADERS) external/iproute2/include
+LOCAL_C_INCLUDES := $(LOCAL_PATH)/../include
 
-LOCAL_CFLAGS := -O2 -g -W -Wall 
+LOCAL_CFLAGS := -O2 -g -W -Wall
 
 include $(BUILD_EXECUTABLE)
 
