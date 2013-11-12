@@ -1,6 +1,9 @@
 #ifndef _LINUX_SOCKET_H
 #define _LINUX_SOCKET_H
 
+/* TODO: remove this file and use our uapi headers instead. */
+typedef unsigned short __kernel_sa_family_t;
+
 /*
  * Desired design of maximum size and alignment (see RFC2553)
  */
