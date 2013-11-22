@@ -36,6 +36,7 @@
 
 #include "utils.h"
 #include "tunnel.h"
+#include "ip_common.h"
 
 #define IP6_FLOWINFO_TCLASS	htonl(0x0FF00000)
 #define IP6_FLOWINFO_FLOWLABEL	htonl(0x000FFFFF)
@@ -75,7 +76,7 @@ static void print_tunnel(struct ip6_tnl_parm *p)
 	printf("%s: %s/ipv6 remote %s local %s",
 	       p->name, tnl_strproto(p->proto), remote, local);
 	if (p->link) {
-		char *n = tnl_ioctl_get_ifname(p->link);
+		const char *n = ll_index_to_name(p->link);
 		if (n)
 			printf(" dev %s", n);
 	}
@@ -105,8 +106,9 @@ static void print_tunnel(struct ip6_tnl_parm *p)
 		printf(" dscp inherit");
 }
 
-static int parse_args(int argc, char **argv, struct ip6_tnl_parm *p)
+static int parse_args(int argc, char **argv, int cmd, struct ip6_tnl_parm *p)
 {
+	int count = 0;
 	char medium[IFNAMSIZ];
 
 	memset(medium, 0, sizeof(medium));
@@ -206,11 +208,19 @@ static int parse_args(int argc, char **argv, struct ip6_tnl_parm *p)
 			if (p->name[0])
 				duparg2("name", *argv);
 			strncpy(p->name, *argv, IFNAMSIZ - 1);
+			if (cmd == SIOCCHGTUNNEL && count == 0) {
+				struct ip6_tnl_parm old_p;
+				memset(&old_p, 0, sizeof(old_p));
+				if (tnl_get_ioctl(*argv, &old_p))
+					return -1;
+				*p = old_p;
+			}
 		}
+		count++;
 		argc--; argv++;
 	}
 	if (medium[0]) {
-		p->link = tnl_ioctl_get_ifindex(medium);
+		p->link = ll_name_to_index(medium);
 		if (p->link == 0)
 			return -1;
 	}
@@ -261,12 +271,15 @@ static int do_tunnels_list(struct ip6_tnl_parm *p)
 	}
 
 	/* skip two lines at the begenning of the file */
-	fgets(buf, sizeof(buf), fp);
-	fgets(buf, sizeof(buf), fp);
+	if (!fgets(buf, sizeof(buf), fp) ||
+	    !fgets(buf, sizeof(buf), fp)) {
+		fprintf(stderr, "/proc/net/dev read error\n");
+		return -1;
+	}
 
 	while (fgets(buf, sizeof(buf), fp) != NULL) {
 		char name[IFNAMSIZ];
-		int type;
+		int index, type;
 		unsigned long rx_bytes, rx_packets, rx_errs, rx_drops,
 			rx_fifo, rx_frame,
 			tx_bytes, tx_packets, tx_errs, tx_drops,
@@ -288,7 +301,10 @@ static int do_tunnels_list(struct ip6_tnl_parm *p)
 			continue;
 		if (p->name[0] && strcmp(p->name, name))
 			continue;
-		type = tnl_ioctl_get_iftype(name);
+		index = ll_name_to_index(name);
+		if (index == 0)
+			continue;
+		type = ll_index_to_type(index);
 		if (type == -1) {
 			fprintf(stderr, "Failed to get type of [%s]\n", name);
 			continue;
@@ -298,7 +314,7 @@ static int do_tunnels_list(struct ip6_tnl_parm *p)
 		memset(&p1, 0, sizeof(p1));
 		ip6_tnl_parm_init(&p1, 0);
 		strcpy(p1.name, name);
-		p1.link = tnl_ioctl_get_ifindex(p1.name);
+		p1.link = ll_name_to_index(p1.name);
 		if (p1.link == 0)
 			continue;
 		if (tnl_get_ioctl(p1.name, &p1))
@@ -329,10 +345,11 @@ static int do_show(int argc, char **argv)
 {
         struct ip6_tnl_parm p;
 
+	ll_init_map(&rth);
 	ip6_tnl_parm_init(&p, 0);
 	p.proto = 0;  /* default to any */
 
-        if (parse_args(argc, argv, &p) < 0)
+        if (parse_args(argc, argv, SIOCGETTUNNEL, &p) < 0)
                 return -1;
 
 	if (!p.name[0] || show_stats)
@@ -353,7 +370,7 @@ static int do_add(int cmd, int argc, char **argv)
 
 	ip6_tnl_parm_init(&p, 1);
 
-	if (parse_args(argc, argv, &p) < 0)
+	if (parse_args(argc, argv, cmd, &p) < 0)
 		return -1;
 
 	return tnl_add_ioctl(cmd,
@@ -367,7 +384,7 @@ static int do_del(int argc, char **argv)
 
 	ip6_tnl_parm_init(&p, 1);
 
-	if (parse_args(argc, argv, &p) < 0)
+	if (parse_args(argc, argv, SIOCDELTUNNEL, &p) < 0)
 		return -1;
 
 	return tnl_del_ioctl(p.name[0] ? p.name : "ip6tnl0", p.name, &p);

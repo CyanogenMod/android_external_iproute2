@@ -32,6 +32,8 @@ int timestamp = 0;
 char * _SL_ = NULL;
 char *batch_file = NULL;
 int force = 0;
+int max_flush_loops = 10;
+
 struct rtnl_handle rth = { .fd = -1 };
 
 static void usage(void) __attribute__((noreturn));
@@ -42,9 +44,11 @@ static void usage(void)
 "Usage: ip [ OPTIONS ] OBJECT { COMMAND | help }\n"
 "       ip [ -force ] -batch filename\n"
 "where  OBJECT := { link | addr | addrlabel | route | rule | neigh | ntable |\n"
-"                   tunnel | tuntap | maddr | mroute | mrule | monitor | xfrm }\n"
+"                   tunnel | tuntap | maddr | mroute | mrule | monitor | xfrm |\n"
+"                   netns | l2tp }\n"
 "       OPTIONS := { -V[ersion] | -s[tatistics] | -d[etails] | -r[esolve] |\n"
 "                    -f[amily] { inet | inet6 | ipx | dnet | link } |\n"
+"                    -l[oops] { maximum-addr-flush-attempts } |\n"
 "                    -o[neline] | -t[imestamp] | -b[atch] [filename] |\n"
 "                    -rc[vbuf] [size]}\n");
 	exit(-1);
@@ -69,6 +73,7 @@ static const struct cmd {
 	{ "ntable",	do_ipntable },
 	{ "ntbl",	do_ipntable },
 	{ "link",	do_iplink },
+	{ "l2tp",	do_ipl2tp },
 	{ "tunnel",	do_iptunnel },
 	{ "tunl",	do_iptunnel },
 	{ "tuntap",	do_iptuntap },
@@ -77,6 +82,7 @@ static const struct cmd {
 	{ "xfrm",	do_xfrm },
 	{ "mroute",	do_multiroute },
 	{ "mrule",	do_multirule },
+	{ "netns",	do_netns },
 	{ "help",	do_help },
 	{ 0,		0 }
 };
@@ -86,12 +92,13 @@ static int do_cmd(const char *argv0, int argc, char **argv)
 	const struct cmd *c;
 
 	for (c = cmds; c->cmd; ++c) {
-		if (matches(argv0, c->cmd) == 0)
-			return c->func(argc-1, argv+1);
+		if (matches(argv0, c->cmd) == 0) {
+			return -(c->func(argc-1, argv+1));
+		}
 	}
 
 	fprintf(stderr, "Object \"%s\" is unknown, try \"ip help\".\n", argv0);
-	return -1;
+	return EXIT_FAILURE;
 }
 
 #ifndef ANDROID
@@ -99,19 +106,19 @@ static int batch(const char *name)
 {
 	char *line = NULL;
 	size_t len = 0;
-	int ret = 0;
+	int ret = EXIT_SUCCESS;
 
 	if (name && strcmp(name, "-") != 0) {
 		if (freopen(name, "r", stdin) == NULL) {
 			fprintf(stderr, "Cannot open file \"%s\" for reading: %s\n",
 				name, strerror(errno));
-			return -1;
+			return EXIT_FAILURE;
 		}
 	}
 
 	if (rtnl_open(&rth, 0) < 0) {
 		fprintf(stderr, "Cannot open rtnetlink\n");
-		return -1;
+		return EXIT_FAILURE;
 	}
 
 	cmdlineno = 0;
@@ -125,7 +132,7 @@ static int batch(const char *name)
 
 		if (do_cmd(largv[0], largc, largv)) {
 			fprintf(stderr, "Command failed %s:%d\n", name, cmdlineno);
-			ret = 1;
+			ret = EXIT_FAILURE;
 			if (!force)
 				break;
 		}
@@ -158,7 +165,13 @@ int main(int argc, char **argv)
 			break;
 		if (opt[1] == '-')
 			opt++;
-		if (matches(opt, "-family") == 0) {
+		if (matches(opt, "-loops") == 0) {
+			argc--;
+			argv++;
+			if (argc <= 1)
+				usage();
+                        max_flush_loops = atoi(argv[1]);
+                } else if (matches(opt, "-family") == 0) {
 			argc--;
 			argv++;
 			if (argc <= 1)

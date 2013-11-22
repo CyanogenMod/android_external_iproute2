@@ -33,7 +33,7 @@ static void explain(void)
 "KEY      := [ src | dst | proto | proto-src | proto-dst | iif | priority | \n"
 "              mark | nfct | nfct-src | nfct-dst | nfct-proto-src | \n"
 "              nfct-proto-dst | rt-classid | sk-uid | sk-gid |\n"
-"              vlan-tag ]\n"
+"              vlan-tag | rxhash ]\n"
 "OPS      := [ or NUM | and NUM | xor NUM | rshift NUM | addend NUM ]\n"
 "ID       := X:Y\n"
 	);
@@ -57,6 +57,7 @@ static const char *flow_keys[FLOW_KEY_MAX+1] = {
 	[FLOW_KEY_SKUID]		= "sk-uid",
 	[FLOW_KEY_SKGID]		= "sk-gid",
 	[FLOW_KEY_VLAN_TAG]		= "vlan-tag",
+	[FLOW_KEY_RXHASH]		= "rxhash",
 };
 
 static int flow_parse_keys(__u32 *keys, __u32 *nkeys, char *argv)
@@ -281,7 +282,7 @@ static int flow_print_opt(struct filter_util *fu, FILE *f, struct rtattr *opt,
 	fprintf(f, "handle 0x%x ", handle);
 
 	if (tb[TCA_FLOW_MODE]) {
-		__u32 mode = *(__u32 *)RTA_DATA(tb[TCA_FLOW_MODE]);
+		__u32 mode = rta_getattr_u32(tb[TCA_FLOW_MODE]);
 
 		switch (mode) {
 		case FLOW_MODE_MAP:
@@ -294,7 +295,7 @@ static int flow_print_opt(struct filter_util *fu, FILE *f, struct rtattr *opt,
 	}
 
 	if (tb[TCA_FLOW_KEYS]) {
-		__u32 keymask = *(__u32 *)RTA_DATA(tb[TCA_FLOW_KEYS]);
+		__u32 keymask = rta_getattr_u32(tb[TCA_FLOW_KEYS]);
 		char *sep = "";
 
 		fprintf(f, "keys ");
@@ -308,9 +309,9 @@ static int flow_print_opt(struct filter_util *fu, FILE *f, struct rtattr *opt,
 	}
 
 	if (tb[TCA_FLOW_MASK])
-		mask = *(__u32 *)RTA_DATA(tb[TCA_FLOW_MASK]);
+		mask = rta_getattr_u32(tb[TCA_FLOW_MASK]);
 	if (tb[TCA_FLOW_XOR])
-		val = *(__u32 *)RTA_DATA(tb[TCA_FLOW_XOR]);
+		val = rta_getattr_u32(tb[TCA_FLOW_XOR]);
 
 	if (mask != ~0 || val != 0) {
 		__u32 or = (mask & val) ^ val;
@@ -326,21 +327,21 @@ static int flow_print_opt(struct filter_util *fu, FILE *f, struct rtattr *opt,
 
 	if (tb[TCA_FLOW_RSHIFT])
 		fprintf(f, "rshift %u ",
-			*(__u32 *)RTA_DATA(tb[TCA_FLOW_RSHIFT]));
+			rta_getattr_u32(tb[TCA_FLOW_RSHIFT]));
 	if (tb[TCA_FLOW_ADDEND])
 		fprintf(f, "addend 0x%x ",
-			*(__u32 *)RTA_DATA(tb[TCA_FLOW_ADDEND]));
+			rta_getattr_u32(tb[TCA_FLOW_ADDEND]));
 
 	if (tb[TCA_FLOW_DIVISOR])
 		fprintf(f, "divisor %u ",
-			*(__u32 *)RTA_DATA(tb[TCA_FLOW_DIVISOR]));
+			rta_getattr_u32(tb[TCA_FLOW_DIVISOR]));
 	if (tb[TCA_FLOW_BASECLASS])
 		fprintf(f, "baseclass %s ",
-			sprint_tc_classid(*(__u32 *)RTA_DATA(tb[TCA_FLOW_BASECLASS]), b1));
+			sprint_tc_classid(rta_getattr_u32(tb[TCA_FLOW_BASECLASS]), b1));
 
 	if (tb[TCA_FLOW_PERTURB])
 		fprintf(f, "perturb %usec ",
-			*(__u32 *)RTA_DATA(tb[TCA_FLOW_PERTURB]));
+			rta_getattr_u32(tb[TCA_FLOW_PERTURB]));
 
 	if (tb[TCA_FLOW_EMATCHES])
 		print_ematch(f, tb[TCA_FLOW_EMATCHES]);

@@ -94,25 +94,32 @@ int rtnl_wilddump_request(struct rtnl_handle *rth, int family, int type)
 	struct {
 		struct nlmsghdr nlh;
 		struct rtgenmsg g;
+		__u16 align_rta;	/* attribute has to be 32bit aligned */
+		struct rtattr ext_req;
+		__u32 ext_filter_mask;
 	} req;
 
 	memset(&req, 0, sizeof(req));
 	req.nlh.nlmsg_len = sizeof(req);
 	req.nlh.nlmsg_type = type;
-	req.nlh.nlmsg_flags = NLM_F_ROOT|NLM_F_MATCH|NLM_F_REQUEST;
+	req.nlh.nlmsg_flags = NLM_F_DUMP|NLM_F_REQUEST;
 	req.nlh.nlmsg_pid = 0;
 	req.nlh.nlmsg_seq = rth->dump = ++rth->seq;
 	req.g.rtgen_family = family;
 
+	req.ext_req.rta_type = IFLA_EXT_MASK;
+	req.ext_req.rta_len = RTA_LENGTH(sizeof(__u32));
+	req.ext_filter_mask = RTEXT_FILTER_VF;
+
 	return send(rth->fd, (void*)&req, sizeof(req), 0);
 }
 
-int rtnl_send(struct rtnl_handle *rth, const char *buf, int len)
+int rtnl_send(struct rtnl_handle *rth, const void *buf, int len)
 {
 	return send(rth->fd, buf, len, 0);
 }
 
-int rtnl_send_check(struct rtnl_handle *rth, const char *buf, int len)
+int rtnl_send_check(struct rtnl_handle *rth, const void *buf, int len)
 {
 	struct nlmsghdr *h;
 	int status;
@@ -148,7 +155,7 @@ int rtnl_send_check(struct rtnl_handle *rth, const char *buf, int len)
 int rtnl_dump_request(struct rtnl_handle *rth, int type, void *req, int len)
 {
 	struct nlmsghdr nlh;
-	struct sockaddr_nl nladdr;
+	struct sockaddr_nl nladdr = { .nl_family = AF_NETLINK };
 	struct iovec iov[2] = {
 		{ .iov_base = &nlh, .iov_len = sizeof(nlh) },
 		{ .iov_base = req, .iov_len = len }
@@ -160,12 +167,9 @@ int rtnl_dump_request(struct rtnl_handle *rth, int type, void *req, int len)
 		.msg_iovlen = 2,
 	};
 
-	memset(&nladdr, 0, sizeof(nladdr));
-	nladdr.nl_family = AF_NETLINK;
-
 	nlh.nlmsg_len = NLMSG_LENGTH(len);
 	nlh.nlmsg_type = type;
-	nlh.nlmsg_flags = NLM_F_ROOT|NLM_F_MATCH|NLM_F_REQUEST;
+	nlh.nlmsg_flags = NLM_F_DUMP|NLM_F_REQUEST;
 	nlh.nlmsg_pid = 0;
 	nlh.nlmsg_seq = rth->dump = ++rth->seq;
 
@@ -189,6 +193,8 @@ int rtnl_dump_filter_l(struct rtnl_handle *rth,
 	while (1) {
 		int status;
 		const struct rtnl_dump_filter_arg *a;
+		int found_done = 0;
+		int msglen = 0;
 
 		iov.iov_len = sizeof(buf);
 		status = recvmsg(rth->fd, &msg, 0);
@@ -208,24 +214,20 @@ int rtnl_dump_filter_l(struct rtnl_handle *rth,
 
 		for (a = arg; a->filter; a++) {
 			struct nlmsghdr *h = (struct nlmsghdr*)buf;
+			msglen = status;
 
-			while (NLMSG_OK(h, status)) {
+			while (NLMSG_OK(h, msglen)) {
 				int err;
 
 				if (nladdr.nl_pid != 0 ||
 				    h->nlmsg_pid != rth->local.nl_pid ||
-				    h->nlmsg_seq != rth->dump) {
-					if (a->junk) {
-						err = a->junk(&nladdr, h,
-							      a->arg2);
-						if (err < 0)
-							return err;
-					}
+				    h->nlmsg_seq != rth->dump)
 					goto skip_it;
-				}
 
-				if (h->nlmsg_type == NLMSG_DONE)
-					return 0;
+				if (h->nlmsg_type == NLMSG_DONE) {
+					found_done = 1;
+					break; /* process next filter */
+				}
 				if (h->nlmsg_type == NLMSG_ERROR) {
 					struct nlmsgerr *err = (struct nlmsgerr*)NLMSG_DATA(h);
 					if (h->nlmsg_len < NLMSG_LENGTH(sizeof(struct nlmsgerr))) {
@@ -242,15 +244,19 @@ int rtnl_dump_filter_l(struct rtnl_handle *rth,
 					return err;
 
 skip_it:
-				h = NLMSG_NEXT(h, status);
+				h = NLMSG_NEXT(h, msglen);
 			}
-		} while (0);
+		}
+
+		if (found_done)
+			return 0;
+
 		if (msg.msg_flags & MSG_TRUNC) {
 			fprintf(stderr, "Message truncated\n");
 			continue;
 		}
-		if (status) {
-			fprintf(stderr, "!!!Remnant of size %d\n", status);
+		if (msglen) {
+			fprintf(stderr, "!!!Remnant of size %d\n", msglen);
 			exit(1);
 		}
 	}
@@ -258,22 +264,18 @@ skip_it:
 
 int rtnl_dump_filter(struct rtnl_handle *rth,
 		     rtnl_filter_t filter,
-		     void *arg1,
-		     rtnl_filter_t junk,
-		     void *arg2)
+		     void *arg1)
 {
 	const struct rtnl_dump_filter_arg a[2] = {
-		{ .filter = filter, .arg1 = arg1, .junk = junk, .arg2 = arg2 },
-		{ .filter = NULL,   .arg1 = NULL, .junk = NULL, .arg2 = NULL }
+		{ .filter = filter, .arg1 = arg1, },
+		{ .filter = NULL,   .arg1 = NULL, },
 	};
 
 	return rtnl_dump_filter_l(rth, a);
 }
 
 int rtnl_talk(struct rtnl_handle *rtnl, struct nlmsghdr *n, pid_t peer,
-	      unsigned groups, struct nlmsghdr *answer,
-	      rtnl_filter_t junk,
-	      void *jarg)
+	      unsigned groups, struct nlmsghdr *answer)
 {
 	int status;
 	unsigned seq;
@@ -332,11 +334,10 @@ int rtnl_talk(struct rtnl_handle *rtnl, struct nlmsghdr *n, pid_t peer,
 			exit(1);
 		}
 		for (h = (struct nlmsghdr*)buf; status >= sizeof(*h); ) {
-			int err;
 			int len = h->nlmsg_len;
 			int l = len - sizeof(*h);
 
-			if (l<0 || len>status) {
+			if (l < 0 || len>status) {
 				if (msg.msg_flags & MSG_TRUNC) {
 					fprintf(stderr, "Truncated message\n");
 					return -1;
@@ -348,11 +349,6 @@ int rtnl_talk(struct rtnl_handle *rtnl, struct nlmsghdr *n, pid_t peer,
 			if (nladdr.nl_pid != peer ||
 			    h->nlmsg_pid != rtnl->local.nl_pid ||
 			    h->nlmsg_seq != seq) {
-				if (junk) {
-					err = junk(&nladdr, h, jarg);
-					if (err < 0)
-						return err;
-				}
 				/* Don't forget to skip that message. */
 				status -= NLMSG_ALIGN(len);
 				h = (struct nlmsghdr*)((char*)h + NLMSG_ALIGN(len));
@@ -484,7 +480,7 @@ int rtnl_from_file(FILE *rtnl, rtnl_filter_t handler,
 	nladdr.nl_groups = 0;
 
 	while (1) {
-		int err, len, type;
+		int err, len;
 		int l;
 
 		status = fread(&buf, 1, sizeof(*h), rtnl);
@@ -499,7 +495,6 @@ int rtnl_from_file(FILE *rtnl, rtnl_filter_t handler,
 			return 0;
 
 		len = h->nlmsg_len;
-		type= h->nlmsg_type;
 		l = len - sizeof(*h);
 
 		if (l<0 || len>sizeof(buf)) {
@@ -525,20 +520,34 @@ int rtnl_from_file(FILE *rtnl, rtnl_filter_t handler,
 	}
 }
 
+int addattr(struct nlmsghdr *n, int maxlen, int type)
+{
+	return addattr_l(n, maxlen, type, NULL, 0);
+}
+
+int addattr8(struct nlmsghdr *n, int maxlen, int type, __u8 data)
+{
+	return addattr_l(n, maxlen, type, &data, sizeof(__u8));
+}
+
+int addattr16(struct nlmsghdr *n, int maxlen, int type, __u16 data)
+{
+	return addattr_l(n, maxlen, type, &data, sizeof(__u16));
+}
+
 int addattr32(struct nlmsghdr *n, int maxlen, int type, __u32 data)
 {
-	int len = RTA_LENGTH(4);
-	struct rtattr *rta;
-	if (NLMSG_ALIGN(n->nlmsg_len) + len > maxlen) {
-		fprintf(stderr,"addattr32: Error! max allowed bound %d exceeded\n",maxlen);
-		return -1;
-	}
-	rta = NLMSG_TAIL(n);
-	rta->rta_type = type;
-	rta->rta_len = len;
-	memcpy(RTA_DATA(rta), &data, 4);
-	n->nlmsg_len = NLMSG_ALIGN(n->nlmsg_len) + len;
-	return 0;
+	return addattr_l(n, maxlen, type, &data, sizeof(__u32));
+}
+
+int addattr64(struct nlmsghdr *n, int maxlen, int type, __u64 data)
+{
+	return addattr_l(n, maxlen, type, &data, sizeof(__u64));
+}
+
+int addattrstrz(struct nlmsghdr *n, int maxlen, int type, const char *str)
+{
+	return addattr_l(n, maxlen, type, str, strlen(str)+1);
 }
 
 int addattr_l(struct nlmsghdr *n, int maxlen, int type, const void *data,

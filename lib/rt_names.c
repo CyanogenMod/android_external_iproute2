@@ -23,6 +23,10 @@
 
 #include "rt_names.h"
 
+#ifndef CONFDIR
+#define CONFDIR "/etc/iproute2"
+#endif
+
 struct rtnl_hash_entry {
 	struct rtnl_hash_entry *next;
 	char *			name;
@@ -129,7 +133,7 @@ static int rtnl_rtprot_init;
 static void rtnl_rtprot_initialize(void)
 {
 	rtnl_rtprot_init = 1;
-	rtnl_tab_initialize("/etc/iproute2/rt_protos",
+	rtnl_tab_initialize(CONFDIR "/rt_protos",
 			    rtnl_rtprot_tab, 256);
 }
 
@@ -196,7 +200,7 @@ static void rtnl_rtscope_initialize(void)
 	rtnl_rtscope_tab[254] = "host";
 	rtnl_rtscope_tab[253] = "link";
 	rtnl_rtscope_tab[200] = "site";
-	rtnl_tab_initialize("/etc/iproute2/rt_scopes",
+	rtnl_tab_initialize(CONFDIR "/rt_scopes",
 			    rtnl_rtscope_tab, 256);
 }
 
@@ -259,7 +263,7 @@ static int rtnl_rtrealm_init;
 static void rtnl_rtrealm_initialize(void)
 {
 	rtnl_rtrealm_init = 1;
-	rtnl_tab_initialize("/etc/iproute2/rt_realms",
+	rtnl_tab_initialize(CONFDIR "/rt_realms",
 			    rtnl_rtrealm_tab, 256);
 }
 
@@ -328,7 +332,7 @@ static int rtnl_rttable_init;
 static void rtnl_rttable_initialize(void)
 {
 	rtnl_rttable_init = 1;
-	rtnl_hash_initialize("/etc/iproute2/rt_tables",
+	rtnl_hash_initialize(CONFDIR "/rt_tables",
 			     rtnl_rttable_hash, 256);
 }
 
@@ -396,7 +400,7 @@ static int rtnl_rtdsfield_init;
 static void rtnl_rtdsfield_initialize(void)
 {
 	rtnl_rtdsfield_init = 1;
-	rtnl_tab_initialize("/etc/iproute2/rt_dsfield",
+	rtnl_tab_initialize(CONFDIR "/rt_dsfield",
 			    rtnl_rtdsfield_tab, 256);
 }
 
@@ -449,3 +453,53 @@ int rtnl_dsfield_a2n(__u32 *id, char *arg)
 	return 0;
 }
 
+
+static struct rtnl_hash_entry dflt_group_entry  = { .id = 0, .name = "default" };
+
+static struct rtnl_hash_entry * rtnl_group_hash[256] = {
+	[0] = &dflt_group_entry,
+};
+
+static int rtnl_group_init;
+
+static void rtnl_group_initialize(void)
+{
+	rtnl_group_init = 1;
+	rtnl_hash_initialize("/etc/iproute2/group",
+			     rtnl_group_hash, 256);
+}
+
+int rtnl_group_a2n(int *id, char *arg)
+{
+	static char *cache = NULL;
+	static unsigned long res;
+	struct rtnl_hash_entry *entry;
+	char *end;
+	int i;
+
+	if (cache && strcmp(cache, arg) == 0) {
+		*id = res;
+		return 0;
+	}
+
+	if (!rtnl_group_init)
+		rtnl_group_initialize();
+
+	for (i=0; i<256; i++) {
+		entry = rtnl_group_hash[i];
+		while (entry && strcmp(entry->name, arg))
+			entry = entry->next;
+		if (entry) {
+			cache = entry->name;
+			res = entry->id;
+			*id = res;
+			return 0;
+		}
+	}
+
+	i = strtol(arg, &end, 0);
+	if (!end || end == arg || *end || i < 0)
+		return -1;
+	*id = i;
+	return 0;
+}

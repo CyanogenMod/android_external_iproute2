@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <syslog.h>
+#include <inttypes.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
@@ -33,7 +34,6 @@
 #include "ll_map.h"
 #include "ip_common.h"
 
-#define MAX_ROUNDS 10
 
 static struct
 {
@@ -50,6 +50,7 @@ static struct
 	char *flushb;
 	int flushp;
 	int flushe;
+	int group;
 } filter;
 
 static int do_link;
@@ -130,26 +131,55 @@ static void print_operstate(FILE *f, __u8 state)
 		fprintf(f, "state %s ", oper_states[state]);
 }
 
-static void print_queuelen(FILE *f, const char *name)
+int get_operstate(const char *name)
 {
-	struct ifreq ifr;
-	int s;
+	int i;
 
-	s = socket(AF_INET, SOCK_STREAM, 0);
-	if (s < 0)
-		return;
+	for (i = 0; i < sizeof(oper_states)/sizeof(oper_states[0]); i++)
+		if (strcasecmp(name, oper_states[i]) == 0)
+			return i;
+	return -1;
+}
 
-	memset(&ifr, 0, sizeof(ifr));
-	strcpy(ifr.ifr_name, name);
-	if (ioctl(s, SIOCGIFTXQLEN, &ifr) < 0) {
-		fprintf(f, "ioctl(SIOCGIFXQLEN) failed: %s\n", strerror(errno));
+static void print_queuelen(FILE *f, struct rtattr *tb[IFLA_MAX + 1])
+{
+	int qlen;
+
+	if (tb[IFLA_TXQLEN])
+		qlen = *(int *)RTA_DATA(tb[IFLA_TXQLEN]);
+	else {
+		struct ifreq ifr;
+		int s = socket(AF_INET, SOCK_STREAM, 0);
+
+		if (s < 0)
+			return;
+
+		memset(&ifr, 0, sizeof(ifr));
+		strcpy(ifr.ifr_name, rta_getattr_str(tb[IFLA_IFNAME]));
+		if (ioctl(s, SIOCGIFTXQLEN, &ifr) < 0) {
+			fprintf(f, "ioctl(SIOCGIFXQLEN) failed: %s\n", strerror(errno));
+			close(s);
+			return;
+		}
 		close(s);
-		return;
+		qlen = ifr.ifr_qlen;
 	}
-	close(s);
+	if (qlen)
+		fprintf(f, "qlen %d", qlen);
+}
 
-	if (ifr.ifr_qlen)
-		fprintf(f, "qlen %d", ifr.ifr_qlen);
+static const char *link_modes[] = {
+	"DEFAULT", "DORMANT"
+};
+
+static void print_linkmode(FILE *f, struct rtattr *tb)
+{
+	unsigned int mode = rta_getattr_u8(tb);
+
+	if (mode >= sizeof(link_modes) / sizeof(link_modes[0]))
+		fprintf(f, "mode %d ", mode);
+	else
+		fprintf(f, "mode %s ", link_modes[mode]);
 }
 
 static void print_linktype(FILE *fp, struct rtattr *tb)
@@ -192,7 +222,9 @@ static void print_vfinfo(FILE *fp, struct rtattr *vfinfo)
 	struct ifla_vf_mac *vf_mac;
 	struct ifla_vf_vlan *vf_vlan;
 	struct ifla_vf_tx_rate *vf_tx_rate;
+	struct ifla_vf_spoofchk *vf_spoofchk;
 	struct rtattr *vf[IFLA_VF_MAX+1];
+	struct rtattr *tmp;
 	SPRINT_BUF(b1);
 
 	if (vfinfo->rta_type != IFLA_VF_INFO) {
@@ -206,6 +238,17 @@ static void print_vfinfo(FILE *fp, struct rtattr *vfinfo)
 	vf_vlan = RTA_DATA(vf[IFLA_VF_VLAN]);
 	vf_tx_rate = RTA_DATA(vf[IFLA_VF_TX_RATE]);
 
+	/* Check if the spoof checking vf info type is supported by
+	 * this kernel.
+	 */
+	tmp = (struct rtattr *)((char *)vf[IFLA_VF_TX_RATE] +
+			vf[IFLA_VF_TX_RATE]->rta_len);
+
+	if (tmp->rta_type != IFLA_VF_SPOOFCHK)
+		vf_spoofchk = NULL;
+	else
+		vf_spoofchk = RTA_DATA(vf[IFLA_VF_SPOOFCHK]);
+
 	fprintf(fp, "\n    vf %d MAC %s", vf_mac->vf,
 		ll_addr_n2a((unsigned char *)&vf_mac->mac,
 		ETH_ALEN, 0, b1, sizeof(b1)));
@@ -215,6 +258,103 @@ static void print_vfinfo(FILE *fp, struct rtattr *vfinfo)
 		fprintf(fp, ", qos %d", vf_vlan->qos);
 	if (vf_tx_rate->rate)
 		fprintf(fp, ", tx rate %d (Mbps)", vf_tx_rate->rate);
+	if (vf_spoofchk && vf_spoofchk->setting != -1) {
+		if (vf_spoofchk->setting)
+			fprintf(fp, ", spoof checking on");
+		else
+			fprintf(fp, ", spoof checking off");
+	}
+}
+
+static void print_link_stats64(FILE *fp, const struct rtnl_link_stats64 *s) {
+	fprintf(fp, "%s", _SL_);
+	fprintf(fp, "    RX: bytes  packets  errors  dropped overrun mcast   %s%s",
+		s->rx_compressed ? "compressed" : "", _SL_);
+	fprintf(fp, "    %-10"PRIu64" %-8"PRIu64" %-7"PRIu64" %-7"PRIu64" %-7"PRIu64" %-7"PRIu64"",
+		(uint64_t)s->rx_bytes,
+		(uint64_t)s->rx_packets,
+		(uint64_t)s->rx_errors,
+		(uint64_t)s->rx_dropped,
+		(uint64_t)s->rx_over_errors,
+		(uint64_t)s->multicast);
+	if (s->rx_compressed)
+		fprintf(fp, " %-7"PRIu64"",
+			(uint64_t)s->rx_compressed);
+	if (show_stats > 1) {
+		fprintf(fp, "%s", _SL_);
+		fprintf(fp, "    RX errors: length  crc     frame   fifo    missed%s", _SL_);
+		fprintf(fp, "               %-7"PRIu64"  %-7"PRIu64" %-7"PRIu64" %-7"PRIu64" %-7"PRIu64"",
+			(uint64_t)s->rx_length_errors,
+			(uint64_t)s->rx_crc_errors,
+			(uint64_t)s->rx_frame_errors,
+			(uint64_t)s->rx_fifo_errors,
+			(uint64_t)s->rx_missed_errors);
+	}
+	fprintf(fp, "%s", _SL_);
+	fprintf(fp, "    TX: bytes  packets  errors  dropped carrier collsns %s%s",
+		(uint64_t)s->tx_compressed ? "compressed" : "", _SL_);
+	fprintf(fp, "    %-10"PRIu64" %-8"PRIu64" %-7"PRIu64" %-7"PRIu64" %-7"PRIu64" %-7"PRIu64"",
+		(uint64_t)s->tx_bytes,
+		(uint64_t)s->tx_packets,
+		(uint64_t)s->tx_errors,
+		(uint64_t)s->tx_dropped,
+		(uint64_t)s->tx_carrier_errors,
+		(uint64_t)s->collisions);
+	if (s->tx_compressed)
+		fprintf(fp, " %-7"PRIu64"",
+			(uint64_t)s->tx_compressed);
+	if (show_stats > 1) {
+		fprintf(fp, "%s", _SL_);
+		fprintf(fp, "    TX errors: aborted fifo    window  heartbeat%s", _SL_);
+		fprintf(fp, "               %-7"PRIu64"  %-7"PRIu64" %-7"PRIu64" %-7"PRIu64"",
+			(uint64_t)s->tx_aborted_errors,
+			(uint64_t)s->tx_fifo_errors,
+			(uint64_t)s->tx_window_errors,
+			(uint64_t)s->tx_heartbeat_errors);
+	}
+}
+
+static void print_link_stats(FILE *fp, const struct rtnl_link_stats *s)
+{
+	fprintf(fp, "%s", _SL_);
+	fprintf(fp, "    RX: bytes  packets  errors  dropped overrun mcast   %s%s",
+		s->rx_compressed ? "compressed" : "", _SL_);
+	fprintf(fp, "    %-10u %-8u %-7u %-7u %-7u %-7u",
+		s->rx_bytes, s->rx_packets, s->rx_errors,
+		s->rx_dropped, s->rx_over_errors,
+		s->multicast
+		);
+	if (s->rx_compressed)
+		fprintf(fp, " %-7u", s->rx_compressed);
+	if (show_stats > 1) {
+		fprintf(fp, "%s", _SL_);
+		fprintf(fp, "    RX errors: length  crc     frame   fifo    missed%s", _SL_);
+		fprintf(fp, "               %-7u  %-7u %-7u %-7u %-7u",
+			s->rx_length_errors,
+			s->rx_crc_errors,
+			s->rx_frame_errors,
+			s->rx_fifo_errors,
+			s->rx_missed_errors
+			);
+	}
+	fprintf(fp, "%s", _SL_);
+	fprintf(fp, "    TX: bytes  packets  errors  dropped carrier collsns %s%s",
+		s->tx_compressed ? "compressed" : "", _SL_);
+	fprintf(fp, "    %-10u %-8u %-7u %-7u %-7u %-7u",
+		s->tx_bytes, s->tx_packets, s->tx_errors,
+		s->tx_dropped, s->tx_carrier_errors, s->collisions);
+	if (s->tx_compressed)
+		fprintf(fp, " %-7u", s->tx_compressed);
+	if (show_stats > 1) {
+		fprintf(fp, "%s", _SL_);
+		fprintf(fp, "    TX errors: aborted fifo    window  heartbeat%s", _SL_);
+		fprintf(fp, "               %-7u  %-7u %-7u %-7u",
+			s->tx_aborted_errors,
+			s->tx_fifo_errors,
+			s->tx_window_errors,
+			s->tx_heartbeat_errors
+			);
+	}
 }
 
 int print_linkinfo(const struct sockaddr_nl *who,
@@ -247,11 +387,17 @@ int print_linkinfo(const struct sockaddr_nl *who,
 	    fnmatch(filter.label, RTA_DATA(tb[IFLA_IFNAME]), 0))
 		return 0;
 
+	if (tb[IFLA_GROUP]) {
+		int group = *(int*)RTA_DATA(tb[IFLA_GROUP]);
+		if (group != filter.group)
+			return -1;
+	}
+
 	if (n->nlmsg_type == RTM_DELLINK)
 		fprintf(fp, "Deleted ");
 
 	fprintf(fp, "%d: %s", ifi->ifi_index,
-		tb[IFLA_IFNAME] ? (char*)RTA_DATA(tb[IFLA_IFNAME]) : "<nil>");
+		tb[IFLA_IFNAME] ? rta_getattr_str(tb[IFLA_IFNAME]) : "<nil>");
 
 	if (tb[IFLA_LINK]) {
 		SPRINT_BUF(b1);
@@ -271,18 +417,20 @@ int print_linkinfo(const struct sockaddr_nl *who,
 	if (tb[IFLA_MTU])
 		fprintf(fp, "mtu %u ", *(int*)RTA_DATA(tb[IFLA_MTU]));
 	if (tb[IFLA_QDISC])
-		fprintf(fp, "qdisc %s ", (char*)RTA_DATA(tb[IFLA_QDISC]));
-#ifdef IFLA_MASTER
+		fprintf(fp, "qdisc %s ", rta_getattr_str(tb[IFLA_QDISC]));
 	if (tb[IFLA_MASTER]) {
 		SPRINT_BUF(b1);
 		fprintf(fp, "master %s ", ll_idx_n2a(*(int*)RTA_DATA(tb[IFLA_MASTER]), b1));
 	}
-#endif
+
 	if (tb[IFLA_OPERSTATE])
-		print_operstate(fp, *(__u8 *)RTA_DATA(tb[IFLA_OPERSTATE]));
-		
+		print_operstate(fp, rta_getattr_u8(tb[IFLA_OPERSTATE]));
+
+	if (do_link && tb[IFLA_LINKMODE])
+		print_linkmode(fp, tb[IFLA_LINKMODE]);
+
 	if (filter.showqueue)
-		print_queuelen(fp, (char*)RTA_DATA(tb[IFLA_IFNAME]));
+		print_queuelen(fp, tb);
 
 	if (!filter.family || filter.family == AF_PACKET) {
 		SPRINT_BUF(b1);
@@ -312,108 +460,15 @@ int print_linkinfo(const struct sockaddr_nl *who,
 
 	if (do_link && tb[IFLA_IFALIAS])
 		fprintf(fp,"\n    alias %s", 
-			(const char *) RTA_DATA(tb[IFLA_IFALIAS]));
+			rta_getattr_str(tb[IFLA_IFALIAS]));
 
-	if (do_link && tb[IFLA_STATS64] && show_stats) {
-		struct rtnl_link_stats64 slocal;
-		struct rtnl_link_stats64 *s = RTA_DATA(tb[IFLA_STATS64]);
-		if (((unsigned long)s) & (sizeof(unsigned long)-1)) {
-			memcpy(&slocal, s, sizeof(slocal));
-			s = &slocal;
-		}
-		fprintf(fp, "%s", _SL_);
-		fprintf(fp, "    RX: bytes  packets  errors  dropped overrun mcast   %s%s",
-			s->rx_compressed ? "compressed" : "", _SL_);
-		fprintf(fp, "    %-10llu %-8llu %-7llu %-7llu %-7llu %-7llu",
-			(unsigned long long)s->rx_bytes,
-			(unsigned long long)s->rx_packets,
-			(unsigned long long)s->rx_errors,
-			(unsigned long long)s->rx_dropped,
-			(unsigned long long)s->rx_over_errors,
-			(unsigned long long)s->multicast);
-		if (s->rx_compressed)
-			fprintf(fp, " %-7llu",
-				(unsigned long long)s->rx_compressed);
-		if (show_stats > 1) {
-			fprintf(fp, "%s", _SL_);
-			fprintf(fp, "    RX errors: length  crc     frame   fifo    missed%s", _SL_);
-			fprintf(fp, "               %-7llu  %-7llu %-7llu %-7llu %-7llu",
-				(unsigned long long)s->rx_length_errors,
-				(unsigned long long)s->rx_crc_errors,
-				(unsigned long long)s->rx_frame_errors,
-				(unsigned long long)s->rx_fifo_errors,
-				(unsigned long long)s->rx_missed_errors);
-		}
-		fprintf(fp, "%s", _SL_);
-		fprintf(fp, "    TX: bytes  packets  errors  dropped carrier collsns %s%s",
-			s->tx_compressed ? "compressed" : "", _SL_);
-		fprintf(fp, "    %-10llu %-8llu %-7llu %-7llu %-7llu %-7llu",
-			(unsigned long long)s->tx_bytes,
-			(unsigned long long)s->tx_packets,
-			(unsigned long long)s->tx_errors,
-			(unsigned long long)s->tx_dropped,
-			(unsigned long long)s->tx_carrier_errors,
-			(unsigned long long)s->collisions);
-		if (s->tx_compressed)
-			fprintf(fp, " %-7llu",
-				(unsigned long long)s->tx_compressed);
-		if (show_stats > 1) {
-			fprintf(fp, "%s", _SL_);
-			fprintf(fp, "    TX errors: aborted fifo    window  heartbeat%s", _SL_);
-			fprintf(fp, "               %-7llu  %-7llu %-7llu %-7llu",
-				(unsigned long long)s->tx_aborted_errors,
-				(unsigned long long)s->tx_fifo_errors,
-				(unsigned long long)s->tx_window_errors,
-				(unsigned long long)s->tx_heartbeat_errors);
-		}
+	if (do_link && show_stats) {
+		if (tb[IFLA_STATS64])
+			print_link_stats64(fp, RTA_DATA(tb[IFLA_STATS64]));
+		else if (tb[IFLA_STATS])
+			print_link_stats(fp, RTA_DATA(tb[IFLA_STATS]));
 	}
-	if (do_link && !tb[IFLA_STATS64] && tb[IFLA_STATS] && show_stats) {
-		struct rtnl_link_stats slocal;
-		struct rtnl_link_stats *s = RTA_DATA(tb[IFLA_STATS]);
-		if (((unsigned long)s) & (sizeof(unsigned long)-1)) {
-			memcpy(&slocal, s, sizeof(slocal));
-			s = &slocal;
-		}
-		fprintf(fp, "%s", _SL_);
-		fprintf(fp, "    RX: bytes  packets  errors  dropped overrun mcast   %s%s",
-			s->rx_compressed ? "compressed" : "", _SL_);
-		fprintf(fp, "    %-10u %-8u %-7u %-7u %-7u %-7u",
-			s->rx_bytes, s->rx_packets, s->rx_errors,
-			s->rx_dropped, s->rx_over_errors,
-			s->multicast
-			);
-		if (s->rx_compressed)
-			fprintf(fp, " %-7u", s->rx_compressed);
-		if (show_stats > 1) {
-			fprintf(fp, "%s", _SL_);
-			fprintf(fp, "    RX errors: length  crc     frame   fifo    missed%s", _SL_);
-			fprintf(fp, "               %-7u  %-7u %-7u %-7u %-7u",
-				s->rx_length_errors,
-				s->rx_crc_errors,
-				s->rx_frame_errors,
-				s->rx_fifo_errors,
-				s->rx_missed_errors
-				);
-		}
-		fprintf(fp, "%s", _SL_);
-		fprintf(fp, "    TX: bytes  packets  errors  dropped carrier collsns %s%s",
-			s->tx_compressed ? "compressed" : "", _SL_);
-		fprintf(fp, "    %-10u %-8u %-7u %-7u %-7u %-7u",
-			s->tx_bytes, s->tx_packets, s->tx_errors,
-			s->tx_dropped, s->tx_carrier_errors, s->collisions);
-		if (s->tx_compressed)
-			fprintf(fp, " %-7u", s->tx_compressed);
-		if (show_stats > 1) {
-			fprintf(fp, "%s", _SL_);
-			fprintf(fp, "    TX errors: aborted fifo    window  heartbeat%s", _SL_);
-			fprintf(fp, "               %-7u  %-7u %-7u %-7u",
-				s->tx_aborted_errors,
-				s->tx_fifo_errors,
-				s->tx_window_errors,
-				s->tx_heartbeat_errors
-				);
-		}
-	}
+
 	if (do_link && tb[IFLA_VFINFO_LIST] && tb[IFLA_NUM_VF]) {
 		struct rtattr *i, *vflist = tb[IFLA_VFINFO_LIST];
 		int rem = RTA_PAYLOAD(vflist);
@@ -453,6 +508,8 @@ int print_addrinfo(const struct sockaddr_nl *who, struct nlmsghdr *n,
 	struct ifaddrmsg *ifa = NLMSG_DATA(n);
 	int len = n->nlmsg_len;
 	int deprecated = 0;
+	/* Use local copy of ifa_flags to not interfere with filtering code */
+	unsigned int ifa_flags;
 	struct rtattr * rta_tb[IFA_MAX+1];
 	char abuf[256];
 	SPRINT_BUF(b1);
@@ -572,61 +629,60 @@ int print_addrinfo(const struct sockaddr_nl *who, struct nlmsghdr *n,
 				    abuf, sizeof(abuf)));
 	}
 	fprintf(fp, "scope %s ", rtnl_rtscope_n2a(ifa->ifa_scope, b1, sizeof(b1)));
+	ifa_flags = ifa->ifa_flags;
 	if (ifa->ifa_flags&IFA_F_SECONDARY) {
-		ifa->ifa_flags &= ~IFA_F_SECONDARY;
+		ifa_flags &= ~IFA_F_SECONDARY;
 		if (ifa->ifa_family == AF_INET6)
 			fprintf(fp, "temporary ");
 		else
 			fprintf(fp, "secondary ");
 	}
 	if (ifa->ifa_flags&IFA_F_TENTATIVE) {
-		ifa->ifa_flags &= ~IFA_F_TENTATIVE;
+		ifa_flags &= ~IFA_F_TENTATIVE;
 		fprintf(fp, "tentative ");
 	}
 	if (ifa->ifa_flags&IFA_F_DEPRECATED) {
-		ifa->ifa_flags &= ~IFA_F_DEPRECATED;
+		ifa_flags &= ~IFA_F_DEPRECATED;
 		deprecated = 1;
 		fprintf(fp, "deprecated ");
 	}
 	if (ifa->ifa_flags&IFA_F_HOMEADDRESS) {
-		ifa->ifa_flags &= ~IFA_F_HOMEADDRESS;
+		ifa_flags &= ~IFA_F_HOMEADDRESS;
 		fprintf(fp, "home ");
 	}
 	if (ifa->ifa_flags&IFA_F_NODAD) {
-		ifa->ifa_flags &= ~IFA_F_NODAD;
+		ifa_flags &= ~IFA_F_NODAD;
 		fprintf(fp, "nodad ");
 	}
 	if (!(ifa->ifa_flags&IFA_F_PERMANENT)) {
 		fprintf(fp, "dynamic ");
 	} else
-		ifa->ifa_flags &= ~IFA_F_PERMANENT;
+		ifa_flags &= ~IFA_F_PERMANENT;
 	if (ifa->ifa_flags&IFA_F_DADFAILED) {
-		ifa->ifa_flags &= ~IFA_F_DADFAILED;
+		ifa_flags &= ~IFA_F_DADFAILED;
 		fprintf(fp, "dadfailed ");
 	}
-	if (ifa->ifa_flags)
-		fprintf(fp, "flags %02x ", ifa->ifa_flags);
+	if (ifa_flags)
+		fprintf(fp, "flags %02x ", ifa_flags);
 	if (rta_tb[IFA_LABEL])
-		fprintf(fp, "%s", (char*)RTA_DATA(rta_tb[IFA_LABEL]));
+		fprintf(fp, "%s", rta_getattr_str(rta_tb[IFA_LABEL]));
 	if (rta_tb[IFA_CACHEINFO]) {
 		struct ifa_cacheinfo *ci = RTA_DATA(rta_tb[IFA_CACHEINFO]);
-		char buf[128];
 		fprintf(fp, "%s", _SL_);
+		fprintf(fp, "       valid_lft ");
 		if (ci->ifa_valid == INFINITY_LIFE_TIME)
-			sprintf(buf, "valid_lft forever");
+			fprintf(fp, "forever");
 		else
-			sprintf(buf, "valid_lft %usec", ci->ifa_valid);
+			fprintf(fp, "%usec", ci->ifa_valid);
+		fprintf(fp, " preferred_lft ");
 		if (ci->ifa_prefered == INFINITY_LIFE_TIME)
-			sprintf(buf+strlen(buf), " preferred_lft forever");
+			fprintf(fp, "forever");
 		else {
 			if (deprecated)
-				sprintf(buf+strlen(buf), " preferred_lft %dsec",
-					ci->ifa_prefered);
+				fprintf(fp, "%dsec", ci->ifa_prefered);
 			else
-				sprintf(buf+strlen(buf), " preferred_lft %usec",
-					ci->ifa_prefered);
+				fprintf(fp, "%usec", ci->ifa_prefered);
 		}
-		fprintf(fp, "       %s", buf);
 	}
 	fprintf(fp, "\n");
 	fflush(fp);
@@ -638,7 +694,7 @@ int print_addrinfo_primary(const struct sockaddr_nl *who, struct nlmsghdr *n,
 {
 	struct ifaddrmsg *ifa = NLMSG_DATA(n);
 
-	if (!ifa->ifa_flags & IFA_F_SECONDARY)
+	if (ifa->ifa_flags & IFA_F_SECONDARY)
 		return 0;
 
 	return print_addrinfo(who, n, arg);
@@ -649,7 +705,7 @@ int print_addrinfo_secondary(const struct sockaddr_nl *who, struct nlmsghdr *n,
 {
 	struct ifaddrmsg *ifa = NLMSG_DATA(n);
 
-	if (ifa->ifa_flags & IFA_F_SECONDARY)
+	if (!(ifa->ifa_flags & IFA_F_SECONDARY))
 		return 0;
 
 	return print_addrinfo(who, n, arg);
@@ -718,9 +774,12 @@ static int ipaddr_list_or_flush(int argc, char **argv, int flush)
 	if (filter.family == AF_UNSPEC)
 		filter.family = preferred_family;
 
+	filter.group = INIT_NETDEV_GROUP;
+
 	if (flush) {
 		if (argc <= 0) {
 			fprintf(stderr, "Flush requires arguments.\n");
+
 			return -1;
 		}
 		if (filter.family == AF_PACKET) {
@@ -779,6 +838,10 @@ static int ipaddr_list_or_flush(int argc, char **argv, int flush)
 		} else if (strcmp(*argv, "label") == 0) {
 			NEXT_ARG();
 			filter.label = *argv;
+		} else if (strcmp(*argv, "group") == 0) {
+			NEXT_ARG();
+			if (rtnl_group_a2n(&filter.group, *argv))
+				invarg("Invalid \"group\" value\n", *argv);
 		} else {
 			if (strcmp(*argv, "dev") == 0) {
 				NEXT_ARG();
@@ -797,7 +860,7 @@ static int ipaddr_list_or_flush(int argc, char **argv, int flush)
 		exit(1);
 	}
 
-	if (rtnl_dump_filter(&rth, store_nlmsg, &linfo, NULL, NULL) < 0) {
+	if (rtnl_dump_filter(&rth, store_nlmsg, &linfo) < 0) {
 		fprintf(stderr, "Dump terminated\n");
 		exit(1);
 	}
@@ -818,25 +881,19 @@ static int ipaddr_list_or_flush(int argc, char **argv, int flush)
 		filter.flushp = 0;
 		filter.flushe = sizeof(flushb);
 
-		while (round < MAX_ROUNDS) {
+		while ((max_flush_loops == 0) || (round < max_flush_loops)) {
 			const struct rtnl_dump_filter_arg a[3] = {
 				{
 					.filter = print_addrinfo_secondary,
 					.arg1 = stdout,
-					.junk = NULL,
-					.arg2 = NULL
 				},
 				{
 					.filter = print_addrinfo_primary,
 					.arg1 = stdout,
-					.junk = NULL,
-					.arg2 = NULL
 				},
 				{
 					.filter = NULL,
 					.arg1 = NULL,
-					.junk = NULL,
-					.arg2 = NULL
 				},
 			};
 			if (rtnl_wilddump_request(&rth, filter.family, RTM_GETADDR) < 0) {
@@ -849,6 +906,7 @@ static int ipaddr_list_or_flush(int argc, char **argv, int flush)
 				exit(1);
 			}
 			if (filter.flushed == 0) {
+flush_done:
 				if (show_stats) {
 					if (round == 0)
 						printf("Nothing to flush.\n");
@@ -866,8 +924,17 @@ static int ipaddr_list_or_flush(int argc, char **argv, int flush)
 				printf("\n*** Round %d, deleting %d addresses ***\n", round, filter.flushed);
 				fflush(stdout);
 			}
+
+			/* If we are flushing, and specifying primary, then we
+			 * want to flush only a single round.  Otherwise, we'll
+			 * start flushing secondaries that were promoted to
+			 * primaries.
+			 */
+			if (!(filter.flags & IFA_F_SECONDARY) && (filter.flagmask & IFA_F_SECONDARY))
+				goto flush_done;
 		}
-		fprintf(stderr, "*** Flush remains incomplete after %d rounds. ***\n", MAX_ROUNDS); fflush(stderr);
+		fprintf(stderr, "*** Flush remains incomplete after %d rounds. ***\n", max_flush_loops);
+		fflush(stderr);
 		return 1;
 	}
 
@@ -877,7 +944,7 @@ static int ipaddr_list_or_flush(int argc, char **argv, int flush)
 			exit(1);
 		}
 
-		if (rtnl_dump_filter(&rth, store_nlmsg, &ainfo, NULL, NULL) < 0) {
+		if (rtnl_dump_filter(&rth, store_nlmsg, &ainfo) < 0) {
 			fprintf(stderr, "Dump terminated\n");
 			exit(1);
 		}
@@ -1168,7 +1235,7 @@ static int ipaddr_modify(int cmd, int flags, int argc, char **argv)
 			  sizeof(cinfo));
 	}
 
-	if (rtnl_talk(&rth, &req.n, 0, 0, NULL, NULL, NULL) < 0)
+	if (rtnl_talk(&rth, &req.n, 0, 0, NULL) < 0)
 		return -2;
 
 	return 0;

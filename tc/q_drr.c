@@ -36,7 +36,7 @@ static void explain2(void)
 
 static int drr_parse_opt(struct qdisc_util *qu, int argc, char **argv, struct nlmsghdr *n)
 {
-	while (argc > 0) {
+	while (argc) {
 		if (strcmp(*argv, "help") == 0) {
 			explain();
 			return -1;
@@ -45,7 +45,6 @@ static int drr_parse_opt(struct qdisc_util *qu, int argc, char **argv, struct nl
 			explain();
 			return -1;
 		}
-		argc--; argv++;
 	}
 	return 0;
 }
@@ -94,7 +93,7 @@ static int drr_print_opt(struct qdisc_util *qu, FILE *f, struct rtattr *opt)
 
 	if (tb[TCA_DRR_QUANTUM])
 		fprintf(f, "quantum %s ",
-			sprint_size(*(__u32 *)RTA_DATA(tb[TCA_DRR_QUANTUM]), b1));
+			sprint_size(rta_getattr_u32(tb[TCA_DRR_QUANTUM]), b1));
 	return 0;
 }
 

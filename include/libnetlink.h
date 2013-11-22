@@ -1,6 +1,7 @@
 #ifndef __LIBNETLINK_H__
 #define __LIBNETLINK_H__ 1
 
+#include <string.h>
 #include <asm/types.h>
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
@@ -32,25 +33,24 @@ struct rtnl_dump_filter_arg
 {
 	rtnl_filter_t filter;
 	void *arg1;
-	rtnl_filter_t junk;
-	void *arg2;
 };
 
 extern int rtnl_dump_filter_l(struct rtnl_handle *rth,
 			      const struct rtnl_dump_filter_arg *arg);
 extern int rtnl_dump_filter(struct rtnl_handle *rth, rtnl_filter_t filter,
-			    void *arg1,
-			    rtnl_filter_t junk,
-			    void *arg2);
-
+			    void *arg);
 extern int rtnl_talk(struct rtnl_handle *rtnl, struct nlmsghdr *n, pid_t peer,
-		     unsigned groups, struct nlmsghdr *answer,
-		     rtnl_filter_t junk,
-		     void *jarg);
-extern int rtnl_send(struct rtnl_handle *rth, const char *buf, int);
-extern int rtnl_send_check(struct rtnl_handle *rth, const char *buf, int);
+		     unsigned groups, struct nlmsghdr *answer);
+extern int rtnl_send(struct rtnl_handle *rth, const void *buf, int);
+extern int rtnl_send_check(struct rtnl_handle *rth, const void *buf, int);
 
+extern int addattr(struct nlmsghdr *n, int maxlen, int type);
+extern int addattr8(struct nlmsghdr *n, int maxlen, int type, __u8 data);
+extern int addattr16(struct nlmsghdr *n, int maxlen, int type, __u16 data);
 extern int addattr32(struct nlmsghdr *n, int maxlen, int type, __u32 data);
+extern int addattr64(struct nlmsghdr *n, int maxlen, int type, __u64 data);
+extern int addattrstrz(struct nlmsghdr *n, int maxlen, int type, const char *data);
+
 extern int addattr_l(struct nlmsghdr *n, int maxlen, int type, const void *data, int alen);
 extern int addraw_l(struct nlmsghdr *n, int maxlen, const void *data, int len);
 extern struct rtattr *addattr_nest(struct nlmsghdr *n, int maxlen, int type);
@@ -68,8 +68,31 @@ extern int __parse_rtattr_nested_compat(struct rtattr *tb[], int max, struct rta
 	(parse_rtattr((tb), (max), RTA_DATA(rta), RTA_PAYLOAD(rta)))
 
 #define parse_rtattr_nested_compat(tb, max, rta, data, len) \
-({	data = RTA_PAYLOAD(rta) >= len ? RTA_DATA(rta) : NULL; \
-	__parse_rtattr_nested_compat(tb, max, rta, len); })
+	({ data = RTA_PAYLOAD(rta) >= len ? RTA_DATA(rta) : NULL;	\
+		__parse_rtattr_nested_compat(tb, max, rta, len); })
+
+static inline __u8 rta_getattr_u8(const struct rtattr *rta)
+{
+	return *(__u8 *)RTA_DATA(rta);
+}
+static inline __u16 rta_getattr_u16(const struct rtattr *rta)
+{
+	return *(__u16 *)RTA_DATA(rta);
+}
+static inline __u32 rta_getattr_u32(const struct rtattr *rta)
+{
+	return *(__u32 *)RTA_DATA(rta);
+}
+static inline __u64 rta_getattr_u64(const struct rtattr *rta)
+{
+	__u64 tmp;
+	memcpy(&tmp, RTA_DATA(rta), sizeof(__u64));
+	return tmp;
+}
+static inline const char *rta_getattr_str(const struct rtattr *rta)
+{
+	return (const char *)RTA_DATA(rta);
+}
 
 extern int rtnl_listen(struct rtnl_handle *, rtnl_filter_t handler,
 		       void *jarg);

@@ -21,6 +21,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <string.h>
+#include <math.h>
 
 #include "utils.h"
 #include "tc_util.h"
@@ -51,7 +52,7 @@ static int init_gred(struct qdisc_util *qu, int argc, char **argv,
 {
 
 	struct rtattr *tail;
-	struct tc_gred_sopt opt;
+	struct tc_gred_sopt opt = { 0 };
 	int dps = 0;
 	int def_dp = -1;
 
@@ -83,7 +84,7 @@ static int init_gred(struct qdisc_util *qu, int argc, char **argv,
 				return -1;
 			}
 		} else if (strcmp(*argv, "grio") == 0) {
-			opt.grio=1;
+			opt.grio = 1;
 		} else if (strcmp(*argv, "help") == 0) {
 			explain();
 			return -1;
@@ -100,7 +101,6 @@ static int init_gred(struct qdisc_util *qu, int argc, char **argv,
 		return -1;
 	}
 
-	memset(&opt, 0, sizeof(struct tc_gred_sopt));
 	opt.DPs = dps;
 	opt.def_DP = def_dp;
 
@@ -126,6 +126,7 @@ static int gred_parse_opt(struct qdisc_util *qu, int argc, char **argv, struct n
 	int wlog;
 	__u8 sbuf[256];
 	struct rtattr *tail;
+	__u32 max_P;
 
 	memset(&opt, 0, sizeof(opt));
 
@@ -216,11 +217,15 @@ static int gred_parse_opt(struct qdisc_util *qu, int argc, char **argv, struct n
 	if (rate == 0)
 		get_rate(&rate, "10Mbit");
 
-	if (!opt.qth_min || !opt.qth_max || !burst || !opt.limit || !avpkt ||
+	if (!opt.qth_min || !opt.qth_max || !opt.limit || !avpkt ||
 	    (opt.DP<0)) {
-		fprintf(stderr, "Required parameter (min, max, burst, limit, "
+		fprintf(stderr, "Required parameter (min, max, limit, "
 		    "avpkt, DP) is missing\n");
 		return -1;
+	}
+	if (!burst) {
+		burst = (2 * opt.qth_min + opt.qth_max) / (3 * avpkt);
+		fprintf(stderr, "GRED: set burst to %u\n", burst);
 	}
 
 	if ((wlog = tc_red_eval_ewma(opt.qth_min, burst, avpkt)) < 0) {
@@ -228,7 +233,7 @@ static int gred_parse_opt(struct qdisc_util *qu, int argc, char **argv, struct n
 		return -1;
 	}
 	if (wlog >= 10)
-		fprintf(stderr, "GRED: WARNING. Burst %d seems to be to "
+		fprintf(stderr, "GRED: WARNING. Burst %d seems to be too "
 		    "large.\n", burst);
 	opt.Wlog = wlog;
 	if ((wlog = tc_red_eval_P(opt.qth_min, opt.qth_max, probability)) < 0) {
@@ -248,14 +253,17 @@ static int gred_parse_opt(struct qdisc_util *qu, int argc, char **argv, struct n
 	addattr_l(n, 1024, TCA_OPTIONS, NULL, 0);
 	addattr_l(n, 1024, TCA_GRED_PARMS, &opt, sizeof(opt));
 	addattr_l(n, 1024, TCA_GRED_STAB, sbuf, 256);
+	max_P = probability * pow(2, 32);
+	addattr32(n, 1024, TCA_GRED_MAX_P, max_P);
 	tail->rta_len = (void *) NLMSG_TAIL(n) - (void *) tail;
 	return 0;
 }
 
 static int gred_print_opt(struct qdisc_util *qu, FILE *f, struct rtattr *opt)
 {
-	struct rtattr *tb[TCA_GRED_STAB+1];
+	struct rtattr *tb[TCA_GRED_MAX + 1];
 	struct tc_gred_qopt *qopt;
+	__u32 *max_p = NULL;
 	int i;
 	SPRINT_BUF(b1);
 	SPRINT_BUF(b2);
@@ -266,10 +274,14 @@ static int gred_print_opt(struct qdisc_util *qu, FILE *f, struct rtattr *opt)
 	if (opt == NULL)
 		return 0;
 
-	parse_rtattr_nested(tb, TCA_GRED_STAB, opt);
+	parse_rtattr_nested(tb, TCA_GRED_MAX, opt);
 
 	if (tb[TCA_GRED_PARMS] == NULL)
 		return -1;
+
+	if (tb[TCA_GRED_MAX_P] &&
+	    RTA_PAYLOAD(tb[TCA_GRED_MAX_P]) >= sizeof(__u32) * MAX_DPs)
+		max_p = RTA_DATA(tb[TCA_GRED_MAX_P]);
 
 	qopt = RTA_DATA(tb[TCA_GRED_PARMS]);
 	if (RTA_PAYLOAD(tb[TCA_GRED_PARMS])  < sizeof(*qopt)*MAX_DPs) {
@@ -299,8 +311,12 @@ static int gred_print_opt(struct qdisc_util *qu, FILE *f, struct rtattr *opt)
 				sprint_size(qopt->limit, b1),
 				sprint_size(qopt->qth_min, b2),
 				sprint_size(qopt->qth_max, b3));
-				fprintf(f, "ewma %u Plog %u Scell_log %u",
-				    qopt->Wlog, qopt->Plog, qopt->Scell_log);
+		fprintf(f, "ewma %u ", qopt->Wlog);
+		if (max_p)
+			fprintf(f, "probability %lg ", max_p[i] / pow(2, 32));
+		else
+			fprintf(f, "Plog %u ", qopt->Plog);
+		fprintf(f, "Scell_log %u", qopt->Scell_log);
 	}
 	return 0;
 }

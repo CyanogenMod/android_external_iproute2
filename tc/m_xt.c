@@ -31,7 +31,6 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <stdarg.h>
-#include <limits.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/wait.h>
@@ -88,7 +87,7 @@ build_st(struct xtables_target *target, struct xt_entry_target *t)
 		target->t = xtables_calloc(1, size);
 		target->t->u.target_size = size;
 		strcpy(target->t->u.user.name, target->name);
-		xtables_set_revision(target->t->u.user.name, target->revision);
+		target->t->u.user.revision = target->revision;
 
 		if (target->init != NULL)
 			target->init(target->t);
@@ -124,11 +123,9 @@ static int parse_ipt(struct action_util *a,int *argc_p,
 	char **argv = *argv_p;
 	int argc = 0, iargc = 0;
 	char k[16];
-	int res = -1;
 	int size = 0;
 	int iok = 0, ok = 0;
 	__u32 hook = 0, index = 0;
-	res = 0;
 
 	xtables_init_all(&tcipt_globals, NFPROTO_IPV4);
 	set_lib_dir();
@@ -162,9 +159,13 @@ static int parse_ipt(struct action_util *a,int *argc_p,
 					return -1;
 				}
 				tcipt_globals.opts =
-				    xtables_merge_options(tcipt_globals.opts,
-				                          m->extra_opts,
-				                          &m->option_offset);
+				    xtables_merge_options(
+#if (XTABLES_VERSION_CODE >= 6)
+				        tcipt_globals.orig_opts,
+#endif
+				        tcipt_globals.opts,
+				        m->extra_opts,
+				        &m->option_offset);
 			} else {
 				fprintf(stderr," failed to find target %s\n\n", optarg);
 				return -1;
@@ -251,13 +252,15 @@ static int parse_ipt(struct action_util *a,int *argc_p,
 
 	optind = 0;
 	xtables_free_opts(1);
-	/* Clear flags if target will be used again */
-        m->tflags=0;
-        m->used=0;
-	/* Free allocated memory */
-        if (m->t)
-            free(m->t);
 
+	if (m) {
+		/* Clear flags if target will be used again */
+		m->tflags = 0;
+		m->used = 0;
+		/* Free allocated memory */
+		if (m->t)
+			free(m->t);
+	}
 
 	return 0;
 
@@ -281,7 +284,7 @@ print_ipt(struct action_util *au,FILE * f, struct rtattr *arg)
 		fprintf(f, "[NULL ipt table name ] assuming mangle ");
 	} else {
 		fprintf(f, "tablename: %s ",
-			(char *) RTA_DATA(tb[TCA_IPT_TABLE]));
+			rta_getattr_str(tb[TCA_IPT_TABLE]));
 	}
 
 	if (tb[TCA_IPT_HOOK] == NULL) {
@@ -289,7 +292,7 @@ print_ipt(struct action_util *au,FILE * f, struct rtattr *arg)
 		return -1;
 	} else {
 		__u32 hook;
-		hook = *(__u32 *) RTA_DATA(tb[TCA_IPT_HOOK]);
+		hook = rta_getattr_u32(tb[TCA_IPT_HOOK]);
 		fprintf(f, " hook: %s \n", ipthooks[hook]);
 	}
 
@@ -307,7 +310,11 @@ print_ipt(struct action_util *au,FILE * f, struct rtattr *arg)
 			}
 
 			tcipt_globals.opts =
-			    xtables_merge_options(tcipt_globals.opts,
+			    xtables_merge_options(
+#if (XTABLES_VERSION_CODE >= 6)
+				                  tcipt_globals.orig_opts,
+#endif
+				                  tcipt_globals.opts,
 			                          m->extra_opts,
 			                          &m->option_offset);
 		} else {
@@ -321,7 +328,7 @@ print_ipt(struct action_util *au,FILE * f, struct rtattr *arg)
 			fprintf(f, " [NULL ipt target index ]\n");
 		} else {
 			__u32 index;
-			index = *(__u32 *) RTA_DATA(tb[TCA_IPT_INDEX]);
+			index = rta_getattr_u32(tb[TCA_IPT_INDEX]);
 			fprintf(f, " \n\tindex %d", index);
 		}
 
@@ -343,8 +350,8 @@ print_ipt(struct action_util *au,FILE * f, struct rtattr *arg)
 	return 0;
 }
 
-struct action_util ipt_action_util = {
-        .id = "ipt",
+struct action_util xt_action_util = {
+        .id = "xt",
         .parse_aopt = parse_ipt,
         .print_aopt = print_ipt,
 };

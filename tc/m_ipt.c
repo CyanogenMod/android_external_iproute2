@@ -281,6 +281,7 @@ get_target_name(const char *name)
 			fputs(dlerror(), stderr);
 			printf("\n");
 			free(new_name);
+			free(lname);
 			return NULL;
 		}
 	}
@@ -297,6 +298,7 @@ get_target_name(const char *name)
 					fprintf(stderr, "\n");
 					dlclose(handle);
 					free(new_name);
+					free(lname);
 					return NULL;
 				}
 			}
@@ -304,6 +306,7 @@ get_target_name(const char *name)
 	}
 
 	free(new_name);
+	free(lname);
 	return m;
 }
 
@@ -393,11 +396,9 @@ static int parse_ipt(struct action_util *a,int *argc_p,
 	char **argv = *argv_p;
 	int argc = 0, iargc = 0;
 	char k[16];
-	int res = -1;
 	int size = 0;
 	int iok = 0, ok = 0;
 	__u32 hook = 0, index = 0;
-	res = 0;
 
 	lib_dir = getenv("IPTABLES_LIB_DIR");
 	if (!lib_dir)
@@ -551,7 +552,7 @@ print_ipt(struct action_util *au,FILE * f, struct rtattr *arg)
 		fprintf(f, "[NULL ipt table name ] assuming mangle ");
 	} else {
 		fprintf(f, "tablename: %s ",
-			(char *) RTA_DATA(tb[TCA_IPT_TABLE]));
+			rta_getattr_str(tb[TCA_IPT_TABLE]));
 	}
 
 	if (tb[TCA_IPT_HOOK] == NULL) {
@@ -559,7 +560,7 @@ print_ipt(struct action_util *au,FILE * f, struct rtattr *arg)
 		return -1;
 	} else {
 		__u32 hook;
-		hook = *(__u32 *) RTA_DATA(tb[TCA_IPT_HOOK]);
+		hook = rta_getattr_u32(tb[TCA_IPT_HOOK]);
 		fprintf(f, " hook: %s \n", ipthooks[hook]);
 	}
 
@@ -590,7 +591,7 @@ print_ipt(struct action_util *au,FILE * f, struct rtattr *arg)
 			fprintf(f, " [NULL ipt target index ]\n");
 		} else {
 			__u32 index;
-			index = *(__u32 *) RTA_DATA(tb[TCA_IPT_INDEX]);
+			index = rta_getattr_u32(tb[TCA_IPT_INDEX]);
 			fprintf(f, " \n\tindex %d", index);
 		}
 

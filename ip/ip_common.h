@@ -1,3 +1,4 @@
+extern int get_operstate(const char *name);
 extern int print_linkinfo(const struct sockaddr_nl *who,
 			  struct nlmsghdr *n,
 			  void *arg);
@@ -38,13 +39,15 @@ extern int do_ipmonitor(int argc, char **argv);
 extern int do_multiaddr(int argc, char **argv);
 extern int do_multiroute(int argc, char **argv);
 extern int do_multirule(int argc, char **argv);
+extern int do_netns(int argc, char **argv);
 extern int do_xfrm(int argc, char **argv);
+extern int do_ipl2tp(int argc, char **argv);
 
 static inline int rtm_get_table(struct rtmsg *r, struct rtattr **tb)
 {
 	__u32 table = r->rtm_table;
 	if (tb[RTA_TABLE])
-		table = *(__u32*) RTA_DATA(tb[RTA_TABLE]);
+		table = rta_getattr_u32(tb[RTA_TABLE]);
 	return table;
 }
 
@@ -64,6 +67,7 @@ struct link_util
 };
 
 struct link_util *get_link_kind(const char *kind);
+int get_netns_fd(const char *name);
 
 #ifndef	INFINITY_LIFE_TIME
 #define     INFINITY_LIFE_TIME      0xFFFFFFFFU

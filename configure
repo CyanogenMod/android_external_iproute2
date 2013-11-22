@@ -3,11 +3,13 @@
 #
 INCLUDE=${1:-"$PWD/include"}
 
-TABLES=
+# Make a temp directory in build tree.
+TMPDIR=$(mktemp -d config.XXXXXX)
+trap 'status=$?; rm -rf $TMPDIRa; exit $status' EXIT HUP INT QUIT TERM
 
 check_atm()
 {
-cat >/tmp/atmtest.c <<EOF
+cat >$TMPDIR/atmtest.c <<EOF
 #include <atm.h>
 int main(int argc, char **argv) {
 	struct atm_qos qos;
@@ -15,7 +17,7 @@ int main(int argc, char **argv) {
 	return 0;
 }
 EOF
-gcc -I$INCLUDE -o /tmp/atmtest /tmp/atmtest.c -latm >/dev/null 2>&1 
+gcc -I$INCLUDE -o $TMPDIR/atmtest $TMPDIR/atmtest.c -latm >/dev/null 2>&1 
 if [ $? -eq 0 ]
 then
     echo "TC_CONFIG_ATM:=y" >>Config
@@ -23,13 +25,13 @@ then
 else
     echo no
 fi
-rm -f /tmp/atmtest.c /tmp/atmtest
+rm -f $TMPDIR/atmtest.c $TMPDIR/atmtest
 }
 
 check_xt()
 {
 #check if we have xtables from iptables >= 1.4.5.
-cat >/tmp/ipttest.c <<EOF
+cat >$TMPDIR/ipttest.c <<EOF
 #include <xtables.h>
 #include <linux/netfilter.h>
 static struct xtables_globals test_globals = {
@@ -49,12 +51,12 @@ int main(int argc, char **argv)
 
 EOF
 
-if gcc -I$INCLUDE $IPTC -o /tmp/ipttest /tmp/ipttest.c $IPTL -ldl -lxtables >/dev/null 2>&1
+if gcc -I$INCLUDE $IPTC -o $TMPDIR/ipttest $TMPDIR/ipttest.c $IPTL $(pkg-config xtables --cflags --libs) -ldl >/dev/null 2>&1
 then
 	echo "TC_CONFIG_XT:=y" >>Config
 	echo "using xtables"
 fi
-rm -f /tmp/ipttest.c /tmp/ipttest
+rm -f $TMPDIR/ipttest.c $TMPDIR/ipttest
 }
 
 check_xt_old()
@@ -65,8 +67,8 @@ then
 	return
 fi
 
-#check if we need dont our internal header ..
-cat >/tmp/ipttest.c <<EOF
+#check if we dont need our internal header ..
+cat >$TMPDIR/ipttest.c <<EOF
 #include <xtables.h>
 char *lib_dir;
 unsigned int global_option_offset = 0;
@@ -86,14 +88,14 @@ int main(int argc, char **argv) {
 }
 
 EOF
-gcc -I$INCLUDE $IPTC -o /tmp/ipttest /tmp/ipttest.c $IPTL -ldl >/dev/null 2>&1
+gcc -I$INCLUDE $IPTC -o $TMPDIR/ipttest $TMPDIR/ipttest.c $IPTL -ldl >/dev/null 2>&1
 
 if [ $? -eq 0 ]
 then
 	echo "TC_CONFIG_XT_OLD:=y" >>Config
 	echo "using old xtables (no need for xt-internal.h)"
 fi
-rm -f /tmp/ipttest.c /tmp/ipttest
+rm -f $TMPDIR/ipttest.c $TMPDIR/ipttest
 }
 
 check_xt_old_internal_h()
@@ -105,7 +107,7 @@ then
 fi
 
 #check if we need our own internal.h
-cat >/tmp/ipttest.c <<EOF
+cat >$TMPDIR/ipttest.c <<EOF
 #include <xtables.h>
 #include "xt-internal.h"
 char *lib_dir;
@@ -126,14 +128,14 @@ int main(int argc, char **argv) {
 }
 
 EOF
-gcc -I$INCLUDE $IPTC -o /tmp/ipttest /tmp/ipttest.c $IPTL -ldl >/dev/null 2>&1
+gcc -I$INCLUDE $IPTC -o $TMPDIR/ipttest $TMPDIR/ipttest.c $IPTL -ldl >/dev/null 2>&1
 
 if [ $? -eq 0 ]
 then
 	echo "using old xtables with xt-internal.h"
 	echo "TC_CONFIG_XT_OLD_H:=y" >>Config
 fi
-rm -f /tmp/ipttest.c /tmp/ipttest
+rm -f $TMPDIR/ipttest.c $TMPDIR/ipttest
 }
 
 check_ipt()
@@ -141,9 +143,6 @@ check_ipt()
 	if ! grep TC_CONFIG_XT Config > /dev/null
 	then
 		echo "using iptables"
-		TABLES="iptables"
-	else
-		TABLES="xtables"
 	fi
 }
 
@@ -152,15 +151,36 @@ check_ipt_lib_dir()
 	IPT_LIB_DIR=""
 	for dir in /lib /usr/lib /usr/local/lib
 	do
-		for file in $dir/$TABLES/lib*t_*so ; do
+		for file in $dir/{xtables,iptables}/lib*t_*so ; do
 			if [ -f $file ]; then
-				echo $dir/$TABLES
-				echo "IPT_LIB_DIR:=$dir/$TABLES" >> Config
+				echo ${file%/*}
+				echo "IPT_LIB_DIR:=${file%/*}" >> Config
 				return
 			fi
 		done
 	done
 	echo "not found!"
+}
+
+check_setns()
+{
+cat >$TMPDIR/setnstest.c <<EOF
+#include <sched.h>
+int main(int argc, char **argv) 
+{
+	(void)setns(0,0);
+	return 0;
+}
+EOF
+gcc -I$INCLUDE -o $TMPDIR/setnstest $TMPDIR/setnstest.c >/dev/null 2>&1
+if [ $? -eq 0 ]
+then
+	echo "IP_CONFIG_SETNS:=y" >>Config
+	echo "yes"
+else
+	echo "no"
+fi
+rm -f $TMPDIR/setnstest.c $TMPDIR/setnstest
 }
 
 echo "# Generated config based on" $INCLUDE >Config
@@ -178,3 +198,6 @@ check_ipt
 
 echo -n "iptables modules directory: "
 check_ipt_lib_dir
+
+echo -n "libc has setns: "
+check_setns

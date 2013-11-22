@@ -25,7 +25,7 @@
 #include "tc_util.h"
 
 #ifndef LIBDIR
-#define LIBDIR "/usr/lib/"
+#define LIBDIR "/usr/lib"
 #endif
 
 const char *get_tc_lib(void)
@@ -203,7 +203,7 @@ void print_rate(char *buf, int len, __u32 rate)
 
 	if (use_iec) {
 		if (tmp >= 1000.0*1024.0*1024.0)
-			snprintf(buf, len, "%.0fMibit", tmp/1024.0*1024.0);
+			snprintf(buf, len, "%.0fMibit", tmp/(1024.0*1024.0));
 		else if (tmp >= 1000.0*1024)
 			snprintf(buf, len, "%.0fKibit", tmp/1024);
 		else
@@ -349,33 +349,6 @@ void print_size(char *buf, int len, __u32 sz)
 char * sprint_size(__u32 size, char *buf)
 {
 	print_size(buf, SPRINT_BSIZE-1, size);
-	return buf;
-}
-
-static const double max_percent_value = 0xffffffff;
-
-int get_percent(__u32 *percent, const char *str)
-{
-	char *p;
-	double per = strtod(str, &p) / 100.;
-
-	if (per > 1. || per < 0)
-		return -1;
-	if (*p && strcmp(p, "%"))
-		return -1;
-
-	*percent = (unsigned) rint(per * max_percent_value);
-	return 0;
-}
-
-void print_percent(char *buf, int len, __u32 per)
-{
-	snprintf(buf, len, "%g%%", 100. * (double) per / max_percent_value);
-}
-
-char * sprint_percent(__u32 per, char *buf)
-{
-	print_percent(buf, SPRINT_BSIZE-1, per);
 	return buf;
 }
 

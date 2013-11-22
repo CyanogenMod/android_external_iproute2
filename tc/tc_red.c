@@ -56,8 +56,11 @@ int tc_red_eval_ewma(unsigned qmin, unsigned burst, unsigned avpkt)
 	double W = 0.5;
 	double a = (double)burst + 1 - (double)qmin/avpkt;
 
-	if (a < 1.0)
+	if (a < 1.0) {
+		fprintf(stderr, "tc_red_eval_ewma() burst %u is too small ?"
+				" Try burst %u\n", burst, 1 + qmin/avpkt);
 		return -1;
+	}
 	for (wlog=1; wlog<32; wlog++, W /= 2) {
 		if (a <= (1 - pow(1-W, burst))/W)
 			return wlog;
@@ -76,9 +79,7 @@ int tc_red_eval_idle_damping(int Wlog, unsigned avpkt, unsigned bps, __u8 *sbuf)
 	double maxtime = 31/lW;
 	int clog;
 	int i;
-	double tmp;
 
-	tmp = maxtime;
 	for (clog=0; clog<32; clog++) {
 		if (maxtime/(1<<clog) < 512)
 			break;

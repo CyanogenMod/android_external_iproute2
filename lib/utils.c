@@ -25,6 +25,7 @@
 #include <linux/pkt_sched.h>
 #include <time.h>
 #include <sys/time.h>
+#include <errno.h>
 
 
 #include "utils.h"
@@ -93,14 +94,13 @@ int get_unsigned(unsigned *val, const char *arg, int base)
 }
 
 /*
- * get_jiffies is "translated" from a similar routine "get_time" in
- * tc_util.c.  we don't use the exact same routine because tc passes
- * microseconds to the kernel and the callers of get_jiffies want 
- * to pass jiffies, and have a different assumption for the units of
- * a "raw" number.
+ * get_time_rtt is "translated" from a similar routine "get_time" in
+ * tc_util.c.  We don't use the exact same routine because tc passes
+ * microseconds to the kernel and the callers of get_time_rtt want to
+ * pass milliseconds (standard unit for rtt values since 2.6.27), and
+ * have a different assumption for the units of a "raw" number.
  */
-
-int get_jiffies(unsigned *jiffies, const char *arg, int base, int *raw)
+int get_time_rtt(unsigned *val, const char *arg, int *raw)
 {
 	double t;
 	unsigned long res;
@@ -112,35 +112,22 @@ int get_jiffies(unsigned *jiffies, const char *arg, int base, int *raw)
 			return -1;
 	}
 	else {
-		res = strtoul(arg,&p,base);
+		res = strtoul(arg, &p, 0);
 		if (res > UINT_MAX)
 			return -1;
 		t = (double)res;
 	}
 	if (p == arg)
 		return -1;
-
-	if (__iproute2_hz_internal == 0)
-                __iproute2_hz_internal = __get_hz();
-	
 	*raw = 1;
 
 	if (*p) {
 		*raw = 0;
                 if (strcasecmp(p, "s") == 0 || strcasecmp(p, "sec")==0 ||
                     strcasecmp(p, "secs")==0)
-                        t *= __iproute2_hz_internal;
+                        t *= 1000;
                 else if (strcasecmp(p, "ms") == 0 || strcasecmp(p, "msec")==0 ||
                          strcasecmp(p, "msecs") == 0)
-                        t *= __iproute2_hz_internal/1000.0;
-                else if (strcasecmp(p, "us") == 0 || strcasecmp(p, "usec")==0 ||
-                         strcasecmp(p, "usecs") == 0)
-                        t *= __iproute2_hz_internal/1000000.0;
-                else if (strcasecmp(p, "ns") == 0 || strcasecmp(p, "nsec")==0 ||
-                         strcasecmp(p, "nsecs") == 0)
-                        t *= __iproute2_hz_internal/1000000000.0;
-		else if (strcasecmp(p, "j") == 0 || strcasecmp(p, "hz") == 0 ||
-			 strcasecmp(p,"jiffies") == 0)
 			t *= 1.0; /* allow suffix, do nothing */
                 else
                         return -1;
@@ -148,9 +135,9 @@ int get_jiffies(unsigned *jiffies, const char *arg, int base, int *raw)
 
 	/* emulate ceil() without having to bring-in -lm and always be >= 1 */
 
-	*jiffies = t;
-	if (*jiffies < t)
-		*jiffies += 1;
+	*val = t;
+	if (*val < t)
+		*val += 1;
 	
         return 0;
 
@@ -207,6 +194,24 @@ int get_u8(__u8 *val, const char *arg, int base)
 		return -1;
 	res = strtoul(arg, &ptr, base);
 	if (!ptr || ptr == arg || *ptr || res > 0xFF)
+		return -1;
+	*val = res;
+	return 0;
+}
+
+int get_s32(__s32 *val, const char *arg, int base)
+{
+	long res;
+	char *ptr;
+
+	errno = 0;
+
+	if (!arg || !*arg)
+		return -1;
+	res = strtol(arg, &ptr, base);
+	if (ptr == arg || *ptr ||
+	    ((res ==  LONG_MIN || res == LONG_MAX) && errno == ERANGE) ||
+	    res > INT32_MAX || res < INT32_MIN)
 		return -1;
 	*val = res;
 	return 0;
@@ -719,7 +724,7 @@ ssize_t getcmdline(char **linep, size_t *lenp, FILE *in)
 	while ((cp = strstr(*linep, "\\\n")) != NULL) {
 		char *line1 = NULL;
 		size_t len1 = 0;
-		size_t cc1;
+		ssize_t cc1;
 
 		if ((cc1 = getline(&line1, &len1, in)) < 0) {
 			fprintf(stderr, "Missing continuation line\n");

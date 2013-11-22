@@ -34,7 +34,9 @@
 #include "SNAPSHOT.h"
 
 #include <netinet/tcp.h>
+#include <linux/sock_diag.h>
 #include <linux/inet_diag.h>
+#include <linux/unix_diag.h>
 
 int resolve_hosts = 0;
 int resolve_services = 1;
@@ -272,13 +274,19 @@ static void user_ent_hash_build(void)
 			const char *pattern = "socket:[";
 			unsigned int ino;
 			char lnk[64];
-			int fd, n;
+			int fd;
+			ssize_t link_len;
 
 			if (sscanf(d1->d_name, "%d%c", &fd, &crap) != 1)
 				continue;
 
 			sprintf(name+pos, "%d", fd);
-			n = readlink(name, lnk, sizeof(lnk)-1);
+
+			link_len = readlink(name, lnk, sizeof(lnk)-1);
+			if (link_len == -1)
+				continue;
+			lnk[link_len] = '\0';
+
 			if (strncmp(lnk, pattern, strlen(pattern)))
 				continue;
 
@@ -518,6 +526,7 @@ void init_service_resolver(void)
 				}
 			}
 		}
+		pclose(fp);
 	}
 }
 
@@ -803,7 +812,7 @@ static int ssfilter_bytecompile(struct ssfilter *f, char **bytecode)
 	{
 		if (!(*bytecode=malloc(4))) abort();
 		((struct inet_diag_bc_op*)*bytecode)[0] = (struct inet_diag_bc_op){ INET_DIAG_BC_AUTO, 4, 8 };
-		return 8;
+		return 4;
 	}
 		case SSF_DCOND:
 		case SSF_SCOND:
@@ -1327,7 +1336,17 @@ static void tcp_show_info(const struct nlmsghdr *nlh, struct inet_diag_msg *r)
 	parse_rtattr(tb, INET_DIAG_MAX, (struct rtattr*)(r+1),
 		     nlh->nlmsg_len - NLMSG_LENGTH(sizeof(*r)));
 
-	if (tb[INET_DIAG_MEMINFO]) {
+	if (tb[INET_DIAG_SKMEMINFO]) {
+		const __u32 *skmeminfo =  RTA_DATA(tb[INET_DIAG_SKMEMINFO]);
+		printf(" skmem:(r%u,rb%u,t%u,tb%u,f%u,w%u,o%u)",
+			skmeminfo[SK_MEMINFO_RMEM_ALLOC],
+			skmeminfo[SK_MEMINFO_RCVBUF],
+			skmeminfo[SK_MEMINFO_WMEM_ALLOC],
+			skmeminfo[SK_MEMINFO_SNDBUF],
+			skmeminfo[SK_MEMINFO_FWD_ALLOC],
+			skmeminfo[SK_MEMINFO_WMEM_QUEUED],
+			skmeminfo[SK_MEMINFO_OPTMEM]);
+	}else if (tb[INET_DIAG_MEMINFO]) {
 		const struct inet_diag_meminfo *minfo
 			= RTA_DATA(tb[INET_DIAG_MEMINFO]);
 		printf(" mem:(r%u,w%u,f%u,t%u)",
@@ -1356,10 +1375,12 @@ static void tcp_show_info(const struct nlmsghdr *nlh, struct inet_diag_msg *r)
 				printf(" sack");
 			if (info->tcpi_options & TCPI_OPT_ECN)
 				printf(" ecn");
+			if (info->tcpi_options & TCPI_OPT_ECN_SEEN)
+				printf(" ecnseen");
 		}
 
 		if (tb[INET_DIAG_CONG])
-			printf(" %s", (char *) RTA_DATA(tb[INET_DIAG_CONG]));
+			printf(" %s", rta_getattr_str(tb[INET_DIAG_CONG]));
 
 		if (info->tcpi_options & TCPI_OPT_WSCALE)
 			printf(" wscale:%d,%d", info->tcpi_snd_wscale,
@@ -1494,8 +1515,10 @@ static int tcp_show_netlink(struct filter *f, FILE *dump_fp, int socktype)
 	memset(&req.r, 0, sizeof(req.r));
 	req.r.idiag_family = AF_INET;
 	req.r.idiag_states = f->states;
-	if (show_mem)
+	if (show_mem) {
 		req.r.idiag_ext |= (1<<(INET_DIAG_MEMINFO-1));
+		req.r.idiag_ext |= (1<<(INET_DIAG_SKMEMINFO-1));
+	}
 
 	if (show_tcpinfo) {
 		req.r.idiag_ext |= (1<<(INET_DIAG_INFO-1));
@@ -1523,8 +1546,10 @@ static int tcp_show_netlink(struct filter *f, FILE *dump_fp, int socktype)
 		.msg_iovlen = f->f ? 3 : 1,
 	};
 
-	if (sendmsg(fd, &msg, 0) < 0)
+	if (sendmsg(fd, &msg, 0) < 0) {
+		close(fd);
 		return -1;
+	}
 
 	iov[0] = (struct iovec){
 		.iov_base = buf,
@@ -1552,6 +1577,7 @@ static int tcp_show_netlink(struct filter *f, FILE *dump_fp, int socktype)
 		}
 		if (status == 0) {
 			fprintf(stderr, "EOF on netlink\n");
+			close(fd);
 			return 0;
 		}
 
@@ -1567,16 +1593,23 @@ static int tcp_show_netlink(struct filter *f, FILE *dump_fp, int socktype)
 			    h->nlmsg_seq != 123456)
 				goto skip_it;
 
-			if (h->nlmsg_type == NLMSG_DONE)
+			if (h->nlmsg_type == NLMSG_DONE) {
+				close(fd);
 				return 0;
+			}
 			if (h->nlmsg_type == NLMSG_ERROR) {
 				struct nlmsgerr *err = (struct nlmsgerr*)NLMSG_DATA(h);
 				if (h->nlmsg_len < NLMSG_LENGTH(sizeof(struct nlmsgerr))) {
 					fprintf(stderr, "ERROR truncated\n");
 				} else {
 					errno = -err->error;
+					if (errno == EOPNOTSUPP) {
+						close(fd);
+						return -1;
+					}
 					perror("TCPDIAG answers");
 				}
+				close(fd);
 				return 0;
 			}
 			if (!dump_fp) {
@@ -1585,8 +1618,10 @@ static int tcp_show_netlink(struct filter *f, FILE *dump_fp, int socktype)
 					continue;
 				}
 				err = tcp_show_sock(h, NULL);
-				if (err < 0)
+				if (err < 0) {
+					close(fd);
 					return err;
+				}
 			}
 
 skip_it:
@@ -1601,6 +1636,7 @@ skip_it:
 			exit(1);
 		}
 	}
+	close(fd);
 	return 0;
 }
 
@@ -1984,6 +2020,157 @@ void unix_list_print(struct unixstat *list, struct filter *f)
 	}
 }
 
+static int unix_show_sock(struct nlmsghdr *nlh, struct filter *f)
+{
+	struct unix_diag_msg *r = NLMSG_DATA(nlh);
+	struct rtattr *tb[UNIX_DIAG_MAX+1];
+	char name[128];
+	int peer_ino;
+	int rqlen;
+
+	parse_rtattr(tb, UNIX_DIAG_MAX, (struct rtattr*)(r+1),
+		     nlh->nlmsg_len - NLMSG_LENGTH(sizeof(*r)));
+
+	if (netid_width)
+		printf("%-*s ", netid_width,
+				r->udiag_type == SOCK_STREAM ? "u_str" : "u_dgr");
+	if (state_width)
+		printf("%-*s ", state_width, sstate_name[r->udiag_state]);
+
+	if (tb[UNIX_DIAG_RQLEN])
+		rqlen = *(int *)RTA_DATA(tb[UNIX_DIAG_RQLEN]);
+	else
+		rqlen = 0;
+
+	printf("%-6d %-6d ", rqlen, 0);
+
+	if (tb[UNIX_DIAG_NAME]) {
+		int len = RTA_PAYLOAD(tb[UNIX_DIAG_NAME]);
+
+		memcpy(name, RTA_DATA(tb[UNIX_DIAG_NAME]), len);
+		name[len] = '\0';
+		if (name[0] == '\0')
+			name[0] = '@';
+	} else
+		sprintf(name, "*");
+
+	if (tb[UNIX_DIAG_PEER])
+		peer_ino = *(int *)RTA_DATA(tb[UNIX_DIAG_PEER]);
+	else
+		peer_ino = 0;
+
+	printf("%*s %-*d %*s %-*d",
+			addr_width, name,
+			serv_width, r->udiag_ino,
+			addr_width, "*", /* FIXME */
+			serv_width, peer_ino);
+
+	if (show_users) {
+		char ubuf[4096];
+		if (find_users(r->udiag_ino, ubuf, sizeof(ubuf)) > 0)
+			printf(" users:(%s)", ubuf);
+	}
+
+	printf("\n");
+
+	return 0;
+}
+
+static int unix_show_netlink(struct filter *f, FILE *dump_fp)
+{
+	int fd;
+	struct {
+		struct nlmsghdr nlh;
+		struct unix_diag_req r;
+	} req;
+	char	buf[8192];
+
+	if ((fd = socket(AF_NETLINK, SOCK_RAW, NETLINK_INET_DIAG)) < 0)
+		return -1;
+
+	memset(&req, 0, sizeof(req));
+	req.nlh.nlmsg_len = sizeof(req);
+	req.nlh.nlmsg_type = SOCK_DIAG_BY_FAMILY;
+	req.nlh.nlmsg_flags = NLM_F_ROOT|NLM_F_MATCH|NLM_F_REQUEST;
+	req.nlh.nlmsg_seq = 123456;
+
+	req.r.sdiag_family = AF_UNIX;
+	req.r.udiag_states = f->states;
+	req.r.udiag_show = UDIAG_SHOW_NAME | UDIAG_SHOW_PEER | UDIAG_SHOW_RQLEN;
+
+	if (send(fd, &req, sizeof(req), 0) < 0) {
+		close(fd);
+		return -1;
+	}
+
+	while (1) {
+		ssize_t status;
+		struct nlmsghdr *h;
+		struct sockaddr_nl nladdr;
+		socklen_t slen = sizeof(nladdr);
+
+		status = recvfrom(fd, buf, sizeof(buf), 0,
+				  (struct sockaddr *) &nladdr, &slen);
+		if (status < 0) {
+			if (errno == EINTR)
+				continue;
+			perror("OVERRUN");
+			continue;
+		}
+		if (status == 0) {
+			fprintf(stderr, "EOF on netlink\n");
+			goto close_it;
+		}
+
+		if (dump_fp)
+			fwrite(buf, 1, NLMSG_ALIGN(status), dump_fp);
+
+		h = (struct nlmsghdr*)buf;
+		while (NLMSG_OK(h, status)) {
+			int err;
+
+			if (/*h->nlmsg_pid != rth->local.nl_pid ||*/
+			    h->nlmsg_seq != 123456)
+				goto skip_it;
+
+			if (h->nlmsg_type == NLMSG_DONE)
+				goto close_it;
+
+			if (h->nlmsg_type == NLMSG_ERROR) {
+				struct nlmsgerr *err = (struct nlmsgerr*)NLMSG_DATA(h);
+				if (h->nlmsg_len < NLMSG_LENGTH(sizeof(struct nlmsgerr))) {
+					fprintf(stderr, "ERROR truncated\n");
+				} else {
+					errno = -err->error;
+					if (errno != ENOENT)
+						fprintf(stderr, "UDIAG answers %d\n", errno);
+				}
+				close(fd);
+				return -1;
+			}
+			if (!dump_fp) {
+				err = unix_show_sock(h, f);
+				if (err < 0) {
+					close(fd);
+					return err;
+				}
+			}
+
+skip_it:
+			h = NLMSG_NEXT(h, status);
+		}
+
+		if (status) {
+			fprintf(stderr, "!!!Remnant of size %zd\n", status);
+			exit(1);
+		}
+	}
+
+close_it:
+	close(fd);
+	return 0;
+}
+
 int unix_show(struct filter *f)
 {
 	FILE *fp;
@@ -1992,6 +2179,10 @@ int unix_show(struct filter *f)
 	int  newformat = 0;
 	int  cnt;
 	struct unixstat *list = NULL;
+
+	if (!getenv("PROC_NET_UNIX") && !getenv("PROC_ROOT")
+	    && unix_show_netlink(f, NULL) == 0)
+		return 0;
 
 	if ((fp = net_unix_open()) == NULL)
 		return -1;
@@ -2053,7 +2244,7 @@ int unix_show(struct filter *f)
 			cnt = 0;
 		}
 	}
-
+	fclose(fp);
 	if (list) {
 		unix_list_print(list, f);
 		unix_list_free(list);
@@ -2416,9 +2607,10 @@ static void _usage(FILE *dest)
 "   -x, --unix		display only Unix domain sockets\n"
 "   -f, --family=FAMILY display sockets of type FAMILY\n"
 "\n"
-"   -A, --query=QUERY\n"
+"   -A, --query=QUERY, --socket=QUERY\n"
 "       QUERY := {all|inet|tcp|udp|raw|unix|packet|netlink}[,QUERY]\n"
 "\n"
+"   -D, --diag=FILE     Dump raw information about TCP sockets to FILE\n"
 "   -F, --filter=FILE   read filter information from FILE\n"
 "       FILTER := [ state TCP-STATE ] [ EXPRESSION ]\n"
 		);
@@ -2486,8 +2678,9 @@ static const struct option long_opts[] = {
 	{ "packet", 0, 0, '0' },
 	{ "family", 1, 0, 'f' },
 	{ "socket", 1, 0, 'A' },
+	{ "query", 1, 0, 'A' },
 	{ "summary", 0, 0, 's' },
-	{ "diag", 0, 0, 'D' },
+	{ "diag", 1, 0, 'D' },
 	{ "filter", 1, 0, 'F' },
 	{ "version", 0, 0, 'V' },
 	{ "help", 0, 0, 'h' },
@@ -2559,7 +2752,7 @@ int main(int argc, char *argv[])
 			current_filter.states = SS_ALL;
 			break;
 		case 'l':
-			current_filter.states = (1<<SS_LISTEN);
+			current_filter.states = (1<<SS_LISTEN) | (1<<SS_CLOSE);
 			break;
 		case '4':
 			preferred_family = AF_INET;

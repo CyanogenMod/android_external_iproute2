@@ -138,7 +138,7 @@ int tc_class_modify(int cmd, unsigned flags, int argc, char **argv)
 		}
 	}
 
-	if (rtnl_talk(&rth, &req.n, 0, 0, NULL, NULL, NULL) < 0)
+	if (rtnl_talk(&rth, &req.n, 0, 0, NULL) < 0)
 		return 2;
 
 	return 0;
@@ -191,7 +191,7 @@ int print_class(const struct sockaddr_nl *who,
 		else
 			print_tc_classid(abuf, sizeof(abuf), t->tcm_handle);
 	}
-	fprintf(fp, "class %s %s ", (char*)RTA_DATA(tb[TCA_KIND]), abuf);
+	fprintf(fp, "class %s %s ", rta_getattr_str(tb[TCA_KIND]), abuf);
 
 	if (filter_ifindex == 0)
 		fprintf(fp, "dev %s ", ll_index_to_name(t->tcm_ifindex));
@@ -298,7 +298,7 @@ int tc_class_list(int argc, char **argv)
 		return 1;
 	}
 
- 	if (rtnl_dump_filter(&rth, print_class, stdout, NULL, NULL) < 0) {
+ 	if (rtnl_dump_filter(&rth, print_class, stdout) < 0) {
 		fprintf(stderr, "Dump terminated\n");
 		return 1;
 	}
