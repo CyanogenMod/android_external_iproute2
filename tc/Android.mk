@@ -14,7 +14,7 @@ LOCAL_SHARED_LIBRARIES += libiprouteutil libnetlink
 
 LOCAL_C_INCLUDES := $(LOCAL_PATH)/../include
 
-LOCAL_CFLAGS := -O2 -g -W -Wall
+LOCAL_CFLAGS := -O2 -g -W -Wall -Wno-pointer-arith -Wno-sign-compare -Werror
 
 include $(BUILD_EXECUTABLE)
 
