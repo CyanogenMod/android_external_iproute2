@@ -19,6 +19,11 @@ LOCAL_SHARED_LIBRARIES += libiprouteutil libnetlink
 LOCAL_C_INCLUDES := $(LOCAL_PATH)/../include
 
 LOCAL_CFLAGS := -O2 -g -W -Wall
+LOCAL_CFLAGS += -Wno-implicit-function-declaration
+LOCAL_CFLAGS += -Wno-missing-field-initializers
+LOCAL_CFLAGS += -Wno-pointer-arith
+LOCAL_CFLAGS += -Wno-sign-compare
+LOCAL_CFLAGS += -Werror
 
 LOCAL_LDFLAGS := -Wl,-export-dynamic -Wl,--no-gc-sections
 
