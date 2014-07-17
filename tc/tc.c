@@ -49,6 +49,12 @@ extern struct qdisc_util cbq_qdisc_util;
 extern struct qdisc_util htb_qdisc_util;
 extern struct qdisc_util ingress_qdisc_util;
 extern struct filter_util u32_filter_util;
+#ifdef FEATURE_PRIO
+extern struct filter_util fw_filter_util;
+extern struct qdisc_util prio_qdisc_util;
+extern struct qdisc_util pfifo_fast_qdisc_util;
+extern struct qdisc_util pfifo_qdisc_util;
+#endif
 #endif
 
 static int print_noqopt(struct qdisc_util *qu, FILE *f,
@@ -111,6 +117,14 @@ struct qdisc_util *get_qdisc_kind(const char *str)
 		return &htb_qdisc_util;
 	else if (!strcmp(str, "ingress"))
 		return &ingress_qdisc_util;
+#ifdef FEATURE_PRIO
+	else if (!strcmp(str, "pfifo_fast"))
+		return &pfifo_fast_qdisc_util;
+	else if (!strcmp(str, "prio"))
+		return &prio_qdisc_util;
+	else if (!strcmp(str, "pfifo"))
+		return &pfifo_qdisc_util;
+#endif
 	else {
 		fprintf(stderr, "Android does not support qdisc '%s'\n", str);
 		return NULL;
@@ -164,6 +178,10 @@ struct filter_util *get_filter_kind(const char *str)
 #ifdef ANDROID
 	if (!strcmp(str, "u32"))
 		return &u32_filter_util;
+#ifdef FEATURE_PRIO
+	else if (!strcmp(str, "fw"))
+		return &fw_filter_util;
+#endif
 	else {
 		fprintf(stderr, "Android does not support filter '%s'\n", str);
 		return NULL;
