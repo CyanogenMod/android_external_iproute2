@@ -25,14 +25,14 @@
 
 static void explain(void)
 {
-	fprintf(stderr, "Usage: ... prio bands NUMBER priomap P1 P2...[multiqueue]\n");
+	fprintf(stderr, "Usage: ... prio bands NUMBER priomap P1 P2...[multiqueue] [flow (enable|disable)]\n");
 }
 
 static int prio_parse_opt(struct qdisc_util *qu, int argc, char **argv, struct nlmsghdr *n)
 {
 	int pmap_mode = 0;
 	int idx = 0;
-	struct tc_prio_qopt opt={3,{ 1, 2, 2, 2, 1, 2, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1 }};
+	struct tc_prio_qopt opt={3,{ 1, 2, 2, 2, 1, 2, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1 },1};
 	struct rtattr *nest;
 	unsigned char mq = 0;
 
@@ -53,6 +53,21 @@ static int prio_parse_opt(struct qdisc_util *qu, int argc, char **argv, struct n
 			pmap_mode = 1;
 		} else if (strcmp(*argv, "multiqueue") == 0) {
 			mq = 1;
+		} else if (strcmp(*argv, "flow") == 0) {
+			NEXT_ARG();
+			if (strcmp(*argv, "enable") == 0)
+			{
+				opt.enable_flow = 1;
+			}
+			else if (strcmp(*argv, "disable") == 0)
+			{
+				opt.enable_flow = 0;
+			}
+			else
+			{
+				explain();
+				return -1;
+			}
 		} else if (strcmp(*argv, "help") == 0) {
 			explain();
 			return -1;
@@ -113,6 +128,9 @@ int prio_print_opt(struct qdisc_util *qu, FILE *f, struct rtattr *opt)
 	if (tb[TCA_PRIO_MQ])
 		fprintf(f, " multiqueue: %s ",
 			rta_getattr_u8(tb[TCA_PRIO_MQ]) ? "on" : "off");
+
+	if (qu && !strcmp(qu->id, "prio"))
+		fprintf(f, " flow %s", qopt->enable_flow ? "enabled" : "disabled");
 
 	return 0;
 }
