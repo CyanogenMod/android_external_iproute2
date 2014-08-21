@@ -481,7 +481,7 @@ int inet_addr_match(const inet_prefix *a, const inet_prefix *b, int bits)
 	return 0;
 }
 
-int __iproute2_hz_internal;
+int __iproute2_hz_internal = 0;
 
 int __get_hz(void)
 {
