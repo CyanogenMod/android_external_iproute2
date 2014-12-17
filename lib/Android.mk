@@ -35,6 +35,9 @@ LOCAL_CFLAGS := -O2 -g -W -Wall \
 	-Wno-unused-parameter \
 	-Werror
 
+# This is a work around for b/18403920
+LOCAL_LDFLAGS := -Wl,--no-gc-sections
+
 include $(BUILD_SHARED_LIBRARY)
 
 include $(CLEAR_VARS)
