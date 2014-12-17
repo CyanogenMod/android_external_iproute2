@@ -20,5 +20,8 @@ LOCAL_CFLAGS := -O2 -g -W -Wall -Wno-pointer-arith -Wno-sign-compare -Werror \
     -Wno-unused-parameter \
     -Wno-missing-field-initializers
 
+# This is a work around for b/18403920
+LOCAL_LDFLAGS := -Wl,--no-gc-sections
+
 include $(BUILD_EXECUTABLE)
 
