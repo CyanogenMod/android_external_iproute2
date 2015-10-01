@@ -20,10 +20,6 @@ endif
 
 DEFINES+=-DCONFDIR=\"$(CONFDIR)\"
 
-#options if you have a bind>=4.9.4 libresolv (or, maybe, glibc)
-LDLIBS=-lresolv
-ADDLIB=
-
 #options for decnet
 ADDLIB+=dnet_ntop.o dnet_pton.o
 
@@ -34,11 +30,13 @@ CC = gcc
 HOSTCC = gcc
 DEFINES += -D_GNU_SOURCE
 CCOPTS = -O2
-WFLAGS = -Wall -Wstrict-prototypes
+WFLAGS := -Wall -Wstrict-prototypes  -Wmissing-prototypes
+WFLAGS += -Wmissing-declarations -Wold-style-definition -Wformat=2
+
 CFLAGS = $(WFLAGS) $(CCOPTS) -I../include $(DEFINES)
 YACCFLAGS = -d -t -v
 
-SUBDIRS=lib ip tc misc netem genl man
+SUBDIRS=lib ip tc bridge misc netem genl man
 
 LIBNETLINK=../lib/libnetlink.a ../lib/libutil.a
 LDLIBS += $(LIBNETLINK)
