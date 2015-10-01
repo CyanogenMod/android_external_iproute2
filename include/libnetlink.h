@@ -1,6 +1,7 @@
 #ifndef __LIBNETLINK_H__
 #define __LIBNETLINK_H__ 1
 
+#include <stdio.h>
 #include <string.h>
 #include <asm/types.h>
 #include <linux/netlink.h>
@@ -8,6 +9,7 @@
 #include <linux/if_link.h>
 #include <linux/if_addr.h>
 #include <linux/neighbour.h>
+#include <linux/netconf.h>
 
 struct rtnl_handle
 {
@@ -16,15 +18,28 @@ struct rtnl_handle
 	struct sockaddr_nl	peer;
 	__u32			seq;
 	__u32			dump;
+	int			proto;
+	FILE		       *dump_fp;
 };
 
 extern int rcvbuf;
 
-extern int rtnl_open(struct rtnl_handle *rth, unsigned subscriptions);
-extern int rtnl_open_byproto(struct rtnl_handle *rth, unsigned subscriptions, int protocol);
+extern int rtnl_open(struct rtnl_handle *rth, unsigned subscriptions)
+	__attribute__((warn_unused_result));
+
+extern int rtnl_open_byproto(struct rtnl_handle *rth, unsigned subscriptions,
+			     int protocol)
+	__attribute__((warn_unused_result));
+
 extern void rtnl_close(struct rtnl_handle *rth);
-extern int rtnl_wilddump_request(struct rtnl_handle *rth, int fam, int type);
-extern int rtnl_dump_request(struct rtnl_handle *rth, int type, void *req, int len);
+extern int rtnl_wilddump_request(struct rtnl_handle *rth, int fam, int type)
+	__attribute__((warn_unused_result));
+extern int rtnl_wilddump_req_filter(struct rtnl_handle *rth, int fam, int type,
+				    __u32 filt_mask)
+	__attribute__((warn_unused_result));
+extern int rtnl_dump_request(struct rtnl_handle *rth, int type, void *req,
+			     int len)
+	__attribute__((warn_unused_result));
 
 typedef int (*rtnl_filter_t)(const struct sockaddr_nl *,
 			     struct nlmsghdr *n, void *);
@@ -40,9 +55,12 @@ extern int rtnl_dump_filter_l(struct rtnl_handle *rth,
 extern int rtnl_dump_filter(struct rtnl_handle *rth, rtnl_filter_t filter,
 			    void *arg);
 extern int rtnl_talk(struct rtnl_handle *rtnl, struct nlmsghdr *n, pid_t peer,
-		     unsigned groups, struct nlmsghdr *answer);
-extern int rtnl_send(struct rtnl_handle *rth, const void *buf, int);
-extern int rtnl_send_check(struct rtnl_handle *rth, const void *buf, int);
+		     unsigned groups, struct nlmsghdr *answer)
+	__attribute__((warn_unused_result));
+extern int rtnl_send(struct rtnl_handle *rth, const void *buf, int)
+	__attribute__((warn_unused_result));
+extern int rtnl_send_check(struct rtnl_handle *rth, const void *buf, int)
+	__attribute__((warn_unused_result));
 
 extern int addattr(struct nlmsghdr *n, int maxlen, int type);
 extern int addattr8(struct nlmsghdr *n, int maxlen, int type, __u8 data);
@@ -61,11 +79,17 @@ extern int rta_addattr32(struct rtattr *rta, int maxlen, int type, __u32 data);
 extern int rta_addattr_l(struct rtattr *rta, int maxlen, int type, const void *data, int alen);
 
 extern int parse_rtattr(struct rtattr *tb[], int max, struct rtattr *rta, int len);
+extern int parse_rtattr_flags(struct rtattr *tb[], int max, struct rtattr *rta,
+			      int len, unsigned short flags);
 extern int parse_rtattr_byindex(struct rtattr *tb[], int max, struct rtattr *rta, int len);
+extern struct rtattr *parse_rtattr_one(int type, struct rtattr *rta, int len);
 extern int __parse_rtattr_nested_compat(struct rtattr *tb[], int max, struct rtattr *rta, int len);
 
 #define parse_rtattr_nested(tb, max, rta) \
 	(parse_rtattr((tb), (max), RTA_DATA(rta), RTA_PAYLOAD(rta)))
+
+#define parse_rtattr_one_nested(type, rta) \
+	(parse_rtattr_one(type, RTA_DATA(rta), RTA_PAYLOAD(rta)))
 
 #define parse_rtattr_nested_compat(tb, max, rta, data, len) \
 	({ data = RTA_PAYLOAD(rta) >= len ? RTA_DATA(rta) : NULL;	\
@@ -133,6 +157,18 @@ extern int rtnl_from_file(FILE *, rtnl_filter_t handler,
 #ifndef NDTA_PAYLOAD
 #define NDTA_PAYLOAD(n) NLMSG_PAYLOAD(n,sizeof(struct ndtmsg))
 #endif
+
+#ifndef NETNS_RTA
+#define NETNS_RTA(r) \
+	((struct rtattr*)(((char*)(r)) + NLMSG_ALIGN(sizeof(struct rtgenmsg))))
+#endif
+#ifndef NETNS_PAYLOAD
+#define NETNS_PAYLOAD(n)	NLMSG_PAYLOAD(n,sizeof(struct rtgenmsg))
+#endif
+
+/* User defined nlmsg_type which is used mostly for logging netlink
+ * messages from dump file */
+#define NLMSG_TSTAMP	15
 
 #endif /* __LIBNETLINK_H__ */
 

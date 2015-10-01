@@ -1,23 +1,30 @@
 #ifndef __UTILS_H__
 #define __UTILS_H__ 1
 
+#include <sys/types.h>
 #include <asm/types.h>
 #include <resolv.h>
 #include <stdlib.h>
+#include <stdbool.h>
 
 #include "libnetlink.h"
 #include "ll_map.h"
 #include "rtm_map.h"
 
 extern int preferred_family;
+extern int human_readable;
+extern int use_iec;
 extern int show_stats;
 extern int show_details;
 extern int show_raw;
 extern int resolve_hosts;
 extern int oneline;
 extern int timestamp;
+extern int timestamp_short;
 extern char * _SL_;
 extern int max_flush_loops;
+extern int batch_mode;
+extern bool do_all;
 
 #ifndef IPPROTO_ESP
 #define IPPROTO_ESP	50
@@ -94,9 +101,12 @@ extern int get_s8(__s8 *val, const char *arg, int base);
 extern char* hexstring_n2a(const __u8 *str, int len, char *buf, int blen);
 extern __u8* hexstring_a2n(const char *str, __u8 *buf, int blen);
 
+extern int af_bit_len(int af);
+extern int af_byte_len(int af);
+
 extern const char *format_host(int af, int len, const void *addr,
 			       char *buf, int buflen);
-extern const char *rt_addr_n2a(int af, int len, const void *addr,
+extern const char *rt_addr_n2a(int af, const void *addr,
 			       char *buf, int buflen);
 
 void missarg(const char *) __attribute__((noreturn));
@@ -143,15 +153,23 @@ static inline __u32 nl_mgrp(__u32 group)
 
 
 int print_timestamp(FILE *fp);
+void print_nlmsg_timestamp(FILE *fp, const struct nlmsghdr *n);
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 
 extern int cmdlineno;
 extern ssize_t getcmdline(char **line, size_t *len, FILE *in);
 extern int makeargs(char *line, char *argv[], int maxargs);
+extern int inet_get_addr(const char *src, __u32 *dst, struct in6_addr *dst6);
 
 struct iplink_req;
 int iplink_parse(int argc, char **argv, struct iplink_req *req,
 		char **name, char **type, char **link, char **dev,
-		int *group);
+		int *group, int *index);
+
+extern int do_each_netns(int (*func)(char *nsname, void *arg), void *arg,
+		bool show_label);
+
+char *int_to_str(int val, char *buf);
+
 #endif /* __UTILS_H__ */
