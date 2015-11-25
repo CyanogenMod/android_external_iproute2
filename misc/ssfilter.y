@@ -4,7 +4,10 @@
 #include <stdlib.h>
 #include <malloc.h>
 #include <string.h>
-#include "ssfilter.h"
+/* NOTE: Android yacc build rules transform ssfilter.y into ssfilter.h, and
+ * #include "ssfilter.h" gets this file instead of the ssfilter.h in the
+ * source tree. This does not work. #include <ssfilter.h> instead. */
+#include <ssfilter.h>
 
 typedef struct ssfilter * ssfilter_t;
 
