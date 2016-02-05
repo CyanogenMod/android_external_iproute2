@@ -80,12 +80,19 @@ replace " } "
 
 .ti -8
 .IR NH " := [ "
+.B  encap
+.IR ENCAP " ] [ "
 .B  via
-.IR ADDRESS " ] [ "
+[
+.IR FAMILY " ] " ADDRESS " ] [ "
 .B  dev
 .IR STRING " ] [ "
 .B  weight
 .IR NUMBER " ] " NHFLAGS
+
+.ti -8
+.IR FAMILY " := [ "
+.BR inet " | " inet6 " | " ipx " | " dnet " | " mpls " | " bridge " | " link " ]"
 
 .ti -8
 .IR OPTIONS " := " FLAGS " [ "
@@ -93,6 +100,11 @@ replace " } "
 .IR NUMBER " ] [ "
 .B  advmss
 .IR NUMBER " ] [ "
+.B  as
+[
+.B to
+]
+.IR ADDRESS " ]"
 .B  rtt
 .IR TIME " ] [ "
 .B  rttvar
@@ -118,7 +130,11 @@ replace " } "
 .B  quickack
 .IR BOOL " ] [ "
 .B  congctl
-.IR NAME " ]"
+.IR NAME " ] [ "
+.B  pref
+.IR PREF " ] [ "
+.B  expires
+.IR TIME " ]"
 
 .ti -8
 .IR TYPE " := [ "
@@ -148,6 +164,30 @@ throw " | " unreachable " | " prohibit " | " blackhole " | " nat " ]"
 .IR FEATURES " := [ "
 .BR ecn " | ]"
 
+.ti -8
+.IR PREF " := [ "
+.BR low " | " medium " | " high " ]"
+
+.ti -8
+.IR ENCAP " := [ "
+.IR MPLS " | " IP " ]"
+
+.ti -8
+.IR ENCAP_MPLS " := "
+.BR mpls " [ "
+.IR LABEL " ]"
+
+.ti -8
+.IR ENCAP_IP " := "
+.B ip
+.B id
+.IR TUNNEL_ID
+.B  dst
+.IR REMOTE_IP " [ "
+.B tos
+.IR TOS " ] ["
+.B  ttl
+.IR TTL " ]"
 
 .SH DESCRIPTION
 .B ip route
@@ -333,9 +373,10 @@ table by default.
 the output device name.
 
 .TP
-.BI via " ADDRESS"
-the address of the nexthop router. Actually, the sense of this field
-depends on the route type. For normal
+.BI via " [ FAMILY ] ADDRESS"
+the address of the nexthop router, in the address family FAMILY.
+Actually, the sense of this field depends on the route type.  For
+normal
 .B unicast
 routes it is either the true next hop router or, if it is a direct
 route installed in BSD compatibility mode, it can be a local address
@@ -472,7 +513,7 @@ is a complex value with its own syntax similar to the top level
 argument lists:
 
 .in +8
-.BI via " ADDRESS"
+.BI via " [ FAMILY ] ADDRESS"
 - is the nexthop router.
 .sp
 
@@ -551,7 +592,77 @@ to assign (or not to assign) protocol tags.
 .B onlink
 pretend that the nexthop is directly attached to this link,
 even if it does not match any interface prefix.
+
+.TP
+.BI pref " PREF"
+the IPv6 route preference.
+.I PREF
+is a string specifying the route preference as defined in RFC4191 for Router
+Discovery messages. Namely:
+
+.in +8
+.B low
+- the route has a lowest priority
+.sp
+
+.B medium
+- the route has a default priority
+.sp
+
+.B high
+- the route has a highest priority
+.sp
+
+.TP
+.BI encap " ENCAPTYPE ENCAPHDR"
+attach tunnel encapsulation attributes to this route.
+.sp
+.I ENCAPTYPE
+is a string specifying the supported encapsulation type. Namely:
+
+.in +8
+.BI mpls
+- encapsulation type MPLS
+.sp
+.BI ip
+- IP encapsulation (Geneve, GRE, VXLAN, ...)
+.sp
+
+.in -8
+.I ENCAPHDR
+is a set of encapsulation attributes specific to the
+.I ENCAPTYPE.
+
+.in +8
+.B mpls
+.in +2
+.I MPLSLABEL
+- mpls label stack with labels separated by
+.I "/"
+.in -2
+.sp
+
+.B ip
+.in +2
+.B id
+.I TUNNEL_ID
+.B  dst
+.IR REMOTE_IP " [ "
+.B tos
+.IR TOS " ] ["
+.B  ttl
+.IR TTL " ]"
+.in -2
+.sp
+
+.in -8
 .RE
+
+.TP
+.BI expires " TIME " "(4.4+ only)"
+the route will be deleted after the expires time.
+.B Only
+support IPv6 at present.
 
 .TP
 ip route delete
@@ -669,7 +780,7 @@ only list routes of this type.
 only list routes going via this device.
 
 .TP
-.BI via " PREFIX"
+.BI via " [ FAMILY ] PREFIX"
 only list routes going via the nexthop routers selected by
 .IR PREFIX "."
 
@@ -808,7 +919,11 @@ ip route add default via 192.168.1.1 dev eth0
 Adds a default route (for all addresses) via the local gateway 192.168.1.1 that can
 be reached on device eth0.
 .RE
-
+.PP
+ip route add 10.1.1.0/30 encap mpls 200/300 via 10.1.1.1 dev eth0
+.RS 4
+Adds an ipv4 route with mpls encapsulation attributes attached to it.
+.RE
 .SH SEE ALSO
 .br
 .BR ip (8)

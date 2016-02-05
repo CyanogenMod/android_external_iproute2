@@ -53,7 +53,7 @@ static int gre_parse_opt(struct link_util *lu, int argc, char **argv,
 	struct {
 		struct nlmsghdr n;
 		struct ifinfomsg i;
-		char buf[1024];
+		char buf[16384];
 	} req;
 	struct ifinfomsg *ifi = (struct ifinfomsg *)(n + 1);
 	struct rtattr *tb[IFLA_MAX + 1];
@@ -74,6 +74,7 @@ static int gre_parse_opt(struct link_util *lu, int argc, char **argv,
 	__u16 encapflags = 0;
 	__u16 encapsport = 0;
 	__u16 encapdport = 0;
+	__u8 metadata = 0;
 
 	if (!(n->nlmsg_flags & NLM_F_CREATE)) {
 		memset(&req, 0, sizeof(req));
@@ -84,7 +85,7 @@ static int gre_parse_opt(struct link_util *lu, int argc, char **argv,
 		req.i.ifi_family = preferred_family;
 		req.i.ifi_index = ifi->ifi_index;
 
-		if (rtnl_talk(&rth, &req.n, 0, 0, &req.n) < 0) {
+		if (rtnl_talk(&rth, &req.n, &req.n, sizeof(req)) < 0) {
 get_failed:
 			fprintf(stderr,
 				"Failed to get existing tunnel info.\n");
@@ -148,6 +149,9 @@ get_failed:
 			encapsport = rta_getattr_u16(greinfo[IFLA_GRE_ENCAP_SPORT]);
 		if (greinfo[IFLA_GRE_ENCAP_DPORT])
 			encapdport = rta_getattr_u16(greinfo[IFLA_GRE_ENCAP_DPORT]);
+
+		if (greinfo[IFLA_GRE_COLLECT_METADATA])
+			metadata = 1;
 	}
 
 	while (argc > 0) {
@@ -291,6 +295,8 @@ get_failed:
 			encapflags |= TUNNEL_ENCAP_FLAG_REMCSUM;
 		} else if (strcmp(*argv, "noencap-remcsum") == 0) {
 			encapflags |= ~TUNNEL_ENCAP_FLAG_REMCSUM;
+		} else if (strcmp(*argv, "external") == 0) {
+			metadata = 1;
 		} else
 			usage();
 		argc--; argv++;
@@ -325,6 +331,8 @@ get_failed:
 	addattr16(n, 1024, IFLA_GRE_ENCAP_FLAGS, encapflags);
 	addattr16(n, 1024, IFLA_GRE_ENCAP_SPORT, htons(encapsport));
 	addattr16(n, 1024, IFLA_GRE_ENCAP_DPORT, htons(encapdport));
+	if (metadata)
+		addattr_l(n, 1024, IFLA_GRE_COLLECT_METADATA, NULL, 0);
 
 	return 0;
 }
@@ -412,6 +420,9 @@ static void gre_print_opt(struct link_util *lu, FILE *f, struct rtattr *tb[])
 		fputs("icsum ", f);
 	if (oflags & GRE_CSUM)
 		fputs("ocsum ", f);
+
+	if (tb[IFLA_GRE_COLLECT_METADATA])
+		fputs("external ", f);
 
 	if (tb[IFLA_GRE_ENCAP_TYPE] &&
 	    *(__u16 *)RTA_DATA(tb[IFLA_GRE_ENCAP_TYPE]) != TUNNEL_ENCAP_NONE) {

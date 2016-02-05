@@ -27,16 +27,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <linux/xfrm.h>
+#include <netinet/in.h>
+
 #include "utils.h"
 #include "xfrm.h"
 #include "ip_common.h"
 
 static void usage(void) __attribute__((noreturn));
+int listen_all_nsid;
 
 static void usage(void)
 {
-	fprintf(stderr, "Usage: ip xfrm monitor [ all | OBJECTS | help ]\n");
+	fprintf(stderr, "Usage: ip xfrm monitor [all-nsid] [ all | OBJECTS | help ]\n");
 	fprintf(stderr, "OBJECTS := { acquire | expire | SA | aevent | policy | report }\n");
 	exit(-1);
 }
@@ -227,7 +229,8 @@ static void xfrm_usersa_print(const struct xfrm_usersa_id *sa_id, __u32 reqid, F
 
 	buf[0] = 0;
 	fprintf(fp, "dst %s ",
-		rt_addr_n2a(sa_id->family, &sa_id->daddr, buf, sizeof(buf)));
+		rt_addr_n2a(sa_id->family, sizeof(sa_id->daddr), &sa_id->daddr,
+			    buf, sizeof(buf)));
 
 	fprintf(fp, " reqid 0x%x", reqid);
 
@@ -246,7 +249,8 @@ static int xfrm_ae_print(const struct sockaddr_nl *who,
 	xfrm_ae_flags_print(id->flags, arg);
 	fprintf(fp,"\n\t");
 	memset(abuf, '\0', sizeof(abuf));
-	fprintf(fp, "src %s ", rt_addr_n2a(id->sa_id.family, &id->saddr,
+	fprintf(fp, "src %s ", rt_addr_n2a(id->sa_id.family,
+					   sizeof(id->saddr), &id->saddr,
 					   abuf, sizeof(abuf)));
 
 	xfrm_usersa_print(&id->sa_id, id->reqid, fp);
@@ -262,7 +266,7 @@ static void xfrm_print_addr(FILE *fp, int family, xfrm_address_t *a)
 	char buf[256];
 
 	buf[0] = 0;
-	fprintf(fp, "%s", rt_addr_n2a(family, a, buf, sizeof(buf)));
+	fprintf(fp, "%s", rt_addr_n2a(family, sizeof(*a), a, buf, sizeof(buf)));
 }
 
 static int xfrm_mapping_print(const struct sockaddr_nl *who,
@@ -286,12 +290,20 @@ static int xfrm_mapping_print(const struct sockaddr_nl *who,
 }
 
 static int xfrm_accept_msg(const struct sockaddr_nl *who,
+			   struct rtnl_ctrl_data *ctrl,
 			   struct nlmsghdr *n, void *arg)
 {
 	FILE *fp = (FILE*)arg;
 
 	if (timestamp)
 		print_timestamp(fp);
+
+	if (listen_all_nsid) {
+		if (ctrl == NULL || ctrl->nsid < 0)
+			fprintf(fp, "[nsid current]");
+		else
+			fprintf(fp, "[nsid %d]", ctrl->nsid);
+	}
 
 	switch (n->nlmsg_type) {
 	case XFRM_MSG_NEWSA:
@@ -355,6 +367,8 @@ int do_xfrm_monitor(int argc, char **argv)
 		if (matches(*argv, "file") == 0) {
 			NEXT_ARG();
 			file = *argv;
+		} else if (matches(*argv, "all-nsid") == 0) {
+			listen_all_nsid = 1;
 		} else if (matches(*argv, "acquire") == 0) {
 			lacquire=1;
 			groups = 0;
@@ -397,15 +411,21 @@ int do_xfrm_monitor(int argc, char **argv)
 
 	if (file) {
 		FILE *fp;
+		int err;
+
 		fp = fopen(file, "r");
 		if (fp == NULL) {
 			perror("Cannot fopen");
 			exit(-1);
 		}
-		return rtnl_from_file(fp, xfrm_accept_msg, (void*)stdout);
+		err = rtnl_from_file(fp, xfrm_accept_msg, stdout);
+		fclose(fp);
+		return err;
 	}
 
 	if (rtnl_open_byproto(&rth, groups, NETLINK_XFRM) < 0)
+		exit(1);
+	if (listen_all_nsid && rtnl_listen_all_nsid(&rth) < 0)
 		exit(1);
 
 	if (rtnl_listen(&rth, xfrm_accept_msg, (void*)stdout) < 0)
