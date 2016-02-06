@@ -2,8 +2,8 @@ LOCAL_PATH := $(call my-dir)
 
 include $(CLEAR_VARS)
 LOCAL_SRC_FILES := \
-    utils.c rt_names.c ll_types.c ll_proto.c ll_addr.c inet_proto.c \
-    namespace.c names.c libgenl.c libnetlink.c
+    color.c utils.c rt_names.c ll_types.c ll_proto.c ll_addr.c inet_proto.c \
+    mpls_pton.c namespace.c names.c libgenl.c libnetlink.c
 LOCAL_MODULE := libiprouteutil
 LOCAL_SYSTEM_SHARED_LIBRARIES := libc
 LOCAL_C_INCLUDES := $(LOCAL_PATH)/../include

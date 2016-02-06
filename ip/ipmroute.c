@@ -67,8 +67,7 @@ int print_mroute(const struct sockaddr_nl *who, struct nlmsghdr *n, void *arg)
 	int family;
 
 	if ((n->nlmsg_type != RTM_NEWROUTE &&
-	     n->nlmsg_type != RTM_DELROUTE) ||
-	    !(n->nlmsg_flags & NLM_F_MULTI)) {
+	     n->nlmsg_type != RTM_DELROUTE)) {
 		fprintf(stderr, "Not a multicast route: %08x %08x %08x\n",
 			n->nlmsg_len, n->nlmsg_type, n->nlmsg_flags);
 		return 0;
@@ -98,15 +97,25 @@ int print_mroute(const struct sockaddr_nl *who, struct nlmsghdr *n, void *arg)
 	if (filter.af && filter.af != r->rtm_family)
 		return 0;
 
-	if (tb[RTA_DST] &&
-	    filter.mdst.bitlen > 0 &&
-	    inet_addr_match(RTA_DATA(tb[RTA_DST]), &filter.mdst, filter.mdst.bitlen))
-		return 0;
+	if (tb[RTA_DST] && filter.mdst.bitlen > 0) {
+		inet_prefix dst;
 
-	if (tb[RTA_SRC] &&
-	    filter.msrc.bitlen > 0 &&
-	    inet_addr_match(RTA_DATA(tb[RTA_SRC]), &filter.msrc, filter.msrc.bitlen))
-		return 0;
+		memset(&dst, 0, sizeof(dst));
+		dst.family = r->rtm_family;
+		memcpy(&dst.data, RTA_DATA(tb[RTA_DST]), RTA_PAYLOAD(tb[RTA_DST]));
+		if (inet_addr_match(&dst, &filter.mdst, filter.mdst.bitlen))
+			return 0;
+	}
+
+	if (tb[RTA_SRC] && filter.msrc.bitlen > 0) {
+		inet_prefix src;
+
+		memset(&src, 0, sizeof(src));
+		src.family = r->rtm_family;
+		memcpy(&src.data, RTA_DATA(tb[RTA_SRC]), RTA_PAYLOAD(tb[RTA_SRC]));
+		if (inet_addr_match(&src, &filter.msrc, filter.msrc.bitlen))
+			return 0;
+	}
 
 	family = r->rtm_family == RTNL_FAMILY_IPMR ? AF_INET : AF_INET6;
 
@@ -116,6 +125,7 @@ int print_mroute(const struct sockaddr_nl *who, struct nlmsghdr *n, void *arg)
 	if (tb[RTA_SRC])
 		len = snprintf(obuf, sizeof(obuf),
 			       "(%s, ", rt_addr_n2a(family,
+						    RTA_PAYLOAD(tb[RTA_SRC]),
 						    RTA_DATA(tb[RTA_SRC]),
 						    abuf, sizeof(abuf)));
 	else
@@ -123,6 +133,7 @@ int print_mroute(const struct sockaddr_nl *who, struct nlmsghdr *n, void *arg)
 	if (tb[RTA_DST])
 		snprintf(obuf + len, sizeof(obuf) - len,
 			 "%s)", rt_addr_n2a(family,
+					    RTA_PAYLOAD(tb[RTA_DST]),
 					    RTA_DATA(tb[RTA_DST]),
 					    abuf, sizeof(abuf)));
 	else
