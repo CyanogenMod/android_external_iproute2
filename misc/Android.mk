@@ -1,13 +1,13 @@
 LOCAL_PATH := $(call my-dir)
 
 include $(CLEAR_VARS)
+LOCAL_CLANG := true
+
 LOCAL_SRC_FILES := ss.c ssfilter.y
 
 LOCAL_MODULE := ss
 
 LOCAL_MODULE_TAGS := debug
-
-LOCAL_SHARED_LIBRARIES := libc
 
 LOCAL_SHARED_LIBRARIES += libiprouteutil libnetlink
 
