@@ -128,30 +128,31 @@ ok:
 	return 0;
 }
 
-int print_tc_classid(char *buf, int len, __u32 h)
+int print_tc_classid(char *buf, int blen, __u32 h)
 {
-	char handle[40] = {};
+	SPRINT_BUF(handle) = {};
+	int hlen = SPRINT_BSIZE - 1;
 
 	if (h == TC_H_ROOT)
 		sprintf(handle, "root");
 	else if (h == TC_H_UNSPEC)
-		snprintf(handle, len, "none");
+		snprintf(handle, hlen, "none");
 	else if (TC_H_MAJ(h) == 0)
-		snprintf(handle, len, ":%x", TC_H_MIN(h));
+		snprintf(handle, hlen, ":%x", TC_H_MIN(h));
 	else if (TC_H_MIN(h) == 0)
-		snprintf(handle, len, "%x:", TC_H_MAJ(h) >> 16);
+		snprintf(handle, hlen, "%x:", TC_H_MAJ(h) >> 16);
 	else
-		snprintf(handle, len, "%x:%x", TC_H_MAJ(h) >> 16, TC_H_MIN(h));
+		snprintf(handle, hlen, "%x:%x", TC_H_MAJ(h) >> 16, TC_H_MIN(h));
 
 	if (use_names) {
 		char clname[IDNAME_MAX] = {};
 
 		if (id_to_name(cls_names, h, clname))
-			snprintf(buf, len, "%s#%s", clname, handle);
+			snprintf(buf, blen, "%s#%s", clname, handle);
 		else
-			snprintf(buf, len, "%s", handle);
+			snprintf(buf, blen, "%s", handle);
 	} else {
-		snprintf(buf, len, "%s", handle);
+		snprintf(buf, blen, "%s", handle);
 	}
 
 	return 0;
@@ -249,18 +250,19 @@ void print_rate(char *buf, int len, __u64 rate)
 	extern int use_iec;
 	unsigned long kilo = use_iec ? 1024 : 1000;
 	const char *str = use_iec ? "i" : "";
-	int i = 0;
 	static char *units[5] = {"", "K", "M", "G", "T"};
+	int i;
 
 	rate <<= 3; /* bytes/sec -> bits/sec */
 
-	for (i = 0; i < ARRAY_SIZE(units); i++)  {
+	for (i = 0; i < ARRAY_SIZE(units) - 1; i++)  {
 		if (rate < kilo)
 			break;
 		if (((rate % kilo) != 0) && rate < 1000*kilo)
 			break;
 		rate /= kilo;
 	}
+
 	snprintf(buf, len, "%.0f%s%sbit", (double)rate, units[i], str);
 }
 
@@ -606,4 +608,3 @@ compat_xstats:
 	if (tb[TCA_XSTATS] && xstats)
 		*xstats = tb[TCA_XSTATS];
 }
-

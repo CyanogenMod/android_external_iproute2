@@ -36,6 +36,7 @@ int show_details = 0;
 int show_raw = 0;
 int show_pretty = 0;
 int show_graph = 0;
+int timestamp;
 
 int batch_mode = 0;
 int resolve_hosts = 0;
@@ -221,7 +222,7 @@ static void usage(void)
 #else
 			"       tc [-force] -batch filename\n"
 #endif
-	                "where  OBJECT := { qdisc | class | filter | action | monitor }\n"
+	                "where  OBJECT := { qdisc | class | filter | action | monitor | exec }\n"
 	                "       OPTIONS := { -s[tatistics] | -d[etails] | -r[aw] | -p[retty] | -b[atch] [filename] | "
 			"-n[etns] name |\n"
 			"                    -nm | -nam[es] | { -cf | -conf } path }\n");
@@ -231,19 +232,16 @@ static int do_cmd(int argc, char **argv)
 {
 	if (matches(*argv, "qdisc") == 0)
 		return do_qdisc(argc-1, argv+1);
-
 	if (matches(*argv, "class") == 0)
 		return do_class(argc-1, argv+1);
-
 	if (matches(*argv, "filter") == 0)
 		return do_filter(argc-1, argv+1);
-
 	if (matches(*argv, "actions") == 0)
 		return do_action(argc-1, argv+1);
-
 	if (matches(*argv, "monitor") == 0)
 		return do_tcmonitor(argc-1, argv+1);
-
+	if (matches(*argv, "exec") == 0)
+		return do_exec(argc-1, argv+1);
 	if (matches(*argv, "help") == 0) {
 		usage();
 		return 0;
@@ -351,6 +349,11 @@ int main(int argc, char **argv)
 				matches(argv[1], "-conf") == 0) {
 			NEXT_ARG();
 			conf_file = argv[1];
+		} else if (matches(argv[1], "-timestamp") == 0) {
+			timestamp++;
+		} else if (matches(argv[1], "-tshort") == 0) {
+			++timestamp;
+			++timestamp_short;
 		} else {
 			fprintf(stderr, "Option \"%s\" is unknown, try \"tc -help\".\n", argv[1]);
 			return -1;

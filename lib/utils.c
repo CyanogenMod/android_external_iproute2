@@ -25,11 +25,13 @@
 #include <asm/types.h>
 #include <linux/pkt_sched.h>
 #include <linux/param.h>
+#include <linux/if_arp.h>
+#include <linux/mpls.h>
 #include <time.h>
 #include <sys/time.h>
 #include <errno.h>
 
-
+#include "rt_names.h"
 #include "utils.h"
 #include "namespace.h"
 
@@ -382,6 +384,41 @@ static int get_addr_ipv4(__u8 *ap, const char *cp)
 	return 1;
 }
 
+int get_addr64(__u64 *ap, const char *cp)
+{
+	int i;
+
+	union {
+		__u16 v16[4];
+		__u64 v64;
+	} val;
+
+	for (i = 0; i < 4; i++) {
+		unsigned long n;
+		char *endp;
+
+		n = strtoul(cp, &endp, 16);
+		if (n > 0xffff)
+			return -1;	/* bogus network value */
+
+		if (endp == cp) /* no digits */
+			return -1;
+
+		val.v16[i] = htons(n);
+
+		if (*endp == '\0')
+			break;
+
+		if (i == 3 || *endp != ':')
+			return -1;	/* extra characters */
+		cp = endp + 1;
+	}
+
+	*ap = val.v64;
+
+	return 1;
+}
+
 int get_addr_1(inet_prefix *addr, const char *name, int family)
 {
 	memset(addr, 0, sizeof(*addr));
@@ -389,11 +426,23 @@ int get_addr_1(inet_prefix *addr, const char *name, int family)
 	if (strcmp(name, "default") == 0 ||
 	    strcmp(name, "all") == 0 ||
 	    strcmp(name, "any") == 0) {
-		if (family == AF_DECnet)
+		if ((family == AF_DECnet) || (family == AF_MPLS))
 			return -1;
 		addr->family = family;
 		addr->bytelen = (family == AF_INET6 ? 16 : 4);
 		addr->bitlen = -1;
+		return 0;
+	}
+
+	if (family == AF_PACKET) {
+		int len;
+		len = ll_addr_a2n((char *)&addr->data, sizeof(addr->data), name);
+		if (len < 0)
+			return -1;
+
+		addr->family = AF_PACKET;
+		addr->bytelen = len;
+		addr->bitlen = len * 8;
 		return 0;
 	}
 
@@ -421,6 +470,23 @@ int get_addr_1(inet_prefix *addr, const char *name, int family)
 	}
 #endif
 
+	if (family == AF_MPLS) {
+		int i;
+		addr->family = AF_MPLS;
+		if (mpls_pton(AF_MPLS, name, addr->data) <= 0)
+			return -1;
+		addr->bytelen = 4;
+		addr->bitlen = 20;
+		/* How many bytes do I need? */
+		for (i = 0; i < 8; i++) {
+			if (ntohl(addr->data[i]) & MPLS_LS_S_MASK) {
+				addr->bytelen = (i + 1)*4;
+				break;
+			}
+		}
+		return 0;
+	}
+
 	addr->family = AF_INET;
 	if (family != AF_UNSPEC && family != AF_INET)
 		return -1;
@@ -444,6 +510,8 @@ int af_bit_len(int af)
 		return 16;
 	case AF_IPX:
 		return 80;
+	case AF_MPLS:
+		return 20;
 	}
 
 	return 0;
@@ -465,7 +533,7 @@ int get_prefix_1(inet_prefix *dst, char *arg, int family)
 	if (strcmp(arg, "default") == 0 ||
 	    strcmp(arg, "any") == 0 ||
 	    strcmp(arg, "all") == 0) {
-		if (family == AF_DECnet)
+		if ((family == AF_DECnet) || (family == AF_MPLS))
 			return -1;
 		dst->family = family;
 		dst->bytelen = 0;
@@ -499,12 +567,9 @@ done:
 
 int get_addr(inet_prefix *dst, const char *arg, int family)
 {
-	if (family == AF_PACKET) {
-		fprintf(stderr, "Error: \"%s\" may be inet address, but it is not allowed in this context.\n", arg);
-		exit(1);
-	}
 	if (get_addr_1(dst, arg, family)) {
-		fprintf(stderr, "Error: an inet address is expected rather than \"%s\".\n", arg);
+		fprintf(stderr, "Error: %s address is expected rather than \"%s\".\n",
+				family_name(family) ,arg);
 		exit(1);
 	}
 	return 0;
@@ -517,7 +582,8 @@ int get_prefix(inet_prefix *dst, char *arg, int family)
 		exit(1);
 	}
 	if (get_prefix_1(dst, arg, family)) {
-		fprintf(stderr, "Error: an inet prefix is expected rather than \"%s\".\n", arg);
+		fprintf(stderr, "Error: %s prefix is expected rather than \"%s\".\n",
+				family_name(family) ,arg);
 		exit(1);
 	}
 	return 0;
@@ -638,13 +704,15 @@ int __get_user_hz(void)
 	return sysconf(_SC_CLK_TCK);
 }
 
-const char *rt_addr_n2a(int af, const void *addr, char *buf, int buflen)
+const char *rt_addr_n2a(int af, int len, const void *addr, char *buf, int buflen)
 {
 	switch (af) {
 	case AF_INET:
 	case AF_INET6:
 		return inet_ntop(af, addr, buf, buflen);
 #ifndef ANDROID
+	case AF_MPLS:
+		return mpls_ntop(af, addr, buf, buflen);
 	case AF_IPX:
 		return ipx_ntop(af, addr, buf, buflen);
 	case AF_DECnet:
@@ -654,9 +722,50 @@ const char *rt_addr_n2a(int af, const void *addr, char *buf, int buflen)
 		return dnet_ntop(af, &dna, buf, buflen);
 	}
 #endif
+	case AF_PACKET:
+		return ll_addr_n2a(addr, len, ARPHRD_VOID, buf, buflen);
 	default:
 		return "???";
 	}
+}
+
+int read_family(const char *name)
+{
+	int family = AF_UNSPEC;
+	if (strcmp(name, "inet") == 0)
+		family = AF_INET;
+	else if (strcmp(name, "inet6") == 0)
+		family = AF_INET6;
+	else if (strcmp(name, "dnet") == 0)
+		family = AF_DECnet;
+	else if (strcmp(name, "link") == 0)
+		family = AF_PACKET;
+	else if (strcmp(name, "ipx") == 0)
+		family = AF_IPX;
+	else if (strcmp(name, "mpls") == 0)
+		family = AF_MPLS;
+	else if (strcmp(name, "bridge") == 0)
+		family = AF_BRIDGE;
+	return family;
+}
+
+const char *family_name(int family)
+{
+	if (family == AF_INET)
+		return "inet";
+	if (family == AF_INET6)
+		return "inet6";
+	if (family == AF_DECnet)
+		return "dnet";
+	if (family == AF_PACKET)
+		return "link";
+	if (family == AF_IPX)
+		return "ipx";
+	if (family == AF_MPLS)
+		return "mpls";
+	if (family == AF_BRIDGE)
+		return "bridge";
+	return "???";
 }
 
 #ifdef RESOLVE_HOSTNAMES
@@ -727,7 +836,7 @@ const char *format_host(int af, int len, const void *addr,
 			return n;
 	}
 #endif
-	return rt_addr_n2a(af, addr, buf, buflen);
+	return rt_addr_n2a(af, len, addr, buf, buflen);
 }
 
 
@@ -768,6 +877,30 @@ __u8* hexstring_a2n(const char *str, __u8 *buf, int blen)
 	return buf;
 }
 
+int addr64_n2a(__u64 addr, char *buff, size_t len)
+{
+	__u16 *words = (__u16 *)&addr;
+	__u16 v;
+	int i, ret;
+	size_t written = 0;
+	char *sep = ":";
+
+	for (i = 0; i < 4; i++) {
+		v = ntohs(words[i]);
+
+		if (i == 3)
+			sep = "";
+
+		ret = snprintf(&buff[written], len - written, "%x%s", v, sep);
+		if (ret < 0)
+			return ret;
+
+		written += ret;
+	}
+
+	return written;
+}
+
 int print_timestamp(FILE *fp)
 {
 	struct timeval tv;
@@ -794,7 +927,6 @@ int print_timestamp(FILE *fp)
 
 int cmdlineno;
 
-#ifndef ANDROID
 /* Like glibc getline but handle continuation lines and comments */
 ssize_t getcmdline(char **linep, size_t *lenp, FILE *in)
 {
@@ -839,7 +971,6 @@ ssize_t getcmdline(char **linep, size_t *lenp, FILE *in)
 	}
 	return cc;
 }
-#endif
 
 /* split command line into argument vector */
 int makeargs(char *line, char *argv[], int maxargs)
@@ -848,12 +979,31 @@ int makeargs(char *line, char *argv[], int maxargs)
 	char *cp;
 	int argc = 0;
 
-	for (cp = strtok(line, ws); cp; cp = strtok(NULL, ws)) {
+	for (cp = line + strspn(line, ws); *cp; cp += strspn(cp, ws)) {
 		if (argc >= (maxargs - 1)) {
 			fprintf(stderr, "Too many arguments to command\n");
 			exit(1);
 		}
+
+		/* word begins with quote */
+		if (*cp == '\'' || *cp == '"') {
+			char quote = *cp++;
+
+			argv[argc++] = cp;
+			/* find ending quote */
+			cp = strchr(cp, quote);
+			if (cp == NULL) {
+				fprintf(stderr, "Unterminated quoted string\n");
+				exit(1);
+			}
+			*cp++ = 0;
+			continue;
+		}
+
 		argv[argc++] = cp;
+		/* find end of word */
+		cp += strcspn(cp, ws);
+		*cp++ = 0;
 	}
 	argv[argc] = NULL;
 
