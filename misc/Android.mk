@@ -26,7 +26,7 @@ LOCAL_CFLAGS := \
     -Wno-tautological-pointer-compare \
     -Wno-unused-parameter \
     -Werror \
-    '-Dsethostent=cos' \
+    '-Dsethostent(x)=' \
     $(yacc_flags) \
     -DHAVE_SETNS
 
