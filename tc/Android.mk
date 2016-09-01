@@ -17,13 +17,9 @@ LOCAL_SYSTEM_SHARED_LIBRARIES := \
 LOCAL_SHARED_LIBRARIES += libiprouteutil libnetlink
 
 ifeq ($(call is-vendor-board-platform,QCOM),true)
-LOCAL_C_INCLUDES := $(TARGET_OUT_INTERMEDIATES)/KERNEL_OBJ/usr/include
-LOCAL_C_INCLUDES += external/iproute2/include
-LOCAL_ADDITIONAL_DEPENDENCIES := $(TARGET_OUT_INTERMEDIATES)/KERNEL_OBJ/usr
 LOCAL_CFLAGS := -DFEATURE_PRIO
-else
-LOCAL_C_INCLUDES := external/iproute2/include
 endif
+LOCAL_C_INCLUDES := external/iproute2/include
 
 LOCAL_CFLAGS += -O2 -g -W -Wall -Wno-pointer-arith -Wno-sign-compare -Werror \
     -Wno-unused-parameter \
